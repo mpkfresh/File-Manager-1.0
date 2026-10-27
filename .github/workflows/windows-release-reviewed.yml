@@ -216,6 +216,49 @@ jobs:
           if ($LASTEXITCODE) { throw 'The consumed dependency sources do not match their pinned commits.' }
           Get-Content -LiteralPath $report -Raw
 
+      - name: Check 1.0 identity and deployed notices
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = 'out/build/windows-release-reviewed'
+          $bin = Join-Path $build 'Release'
+          $cache = Get-Content -LiteralPath (Join-Path $build 'CMakeCache.txt')
+          foreach ($required in @('FILE_MANAGER_BUILD_VERSION:STRING=1.0.0',
+              'FILE_MANAGER_RELEASE_CHANNEL:STRING=',
+              'FILE_MANAGER_PUBLISHER:STRING=Kiatami')) {
+            if (-not ($cache -ccontains $required)) {
+              throw 'The final 1.0 build identity differs from the reviewed preset.'
+            }
+          }
+          foreach ($name in @('FileManager.exe', 'FileManagerShellHost.exe',
+              'FileManagerPreviewHost.exe', 'FileManagerContextMenuHost.exe',
+              'FileManagerMaintenance.exe')) {
+            $path = Join-Path $bin $name
+            $version = (Get-Item -LiteralPath $path -ErrorAction Stop).VersionInfo
+            if ($version.FileVersion -cne '1.0.0' -or
+                $version.ProductVersion -cne '1.0.0' -or
+                $version.CompanyName -cne 'Kiatami' -or
+                $version.ProductName -cne 'File Manager' -or
+                $version.OriginalFilename -cne $name) {
+              throw "The final executable identity differs: $name"
+            }
+          }
+          foreach ($relative in @('THIRD_PARTY_NOTICES.md',
+              'licenses/Windows-SDK-Third-Party-Notices.rtf')) {
+            $source = if ($relative -eq 'THIRD_PARTY_NOTICES.md') {
+              $relative
+            } else {
+              'resources/licenses/Windows-SDK-Third-Party-Notices.rtf'
+            }
+            $target = Join-Path $bin $relative.Replace('/', '\')
+            $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+            $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+            if ($sourceHash -cne $targetHash) {
+              throw "The staged release notice differs: $relative"
+            }
+            Write-Output "$relative SHA-256 $targetHash"
+          }
+          Write-Output 'Final 1.0 executable identities and two staged notices matched.'
+
       - name: Check the base Qt deployment before replacing media
         run: |
           $ErrorActionPreference = 'Stop'
@@ -223,6 +266,38 @@ jobs:
             --timeout 180 -R '^FileManagerDependencyTests$'
           if ($LASTEXITCODE) { throw 'Base Qt deployment check failed.' }
           Write-Output 'Base deployment passed; the final seven-file payload remains a separate gate.'
+
+      - name: Bind deployed shader DLLs to Qt-listed sources
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = 'out/build/windows-release-reviewed/Release'
+          $deploy = Join-Path $env:FILE_MANAGER_QT_PREFIX 'bin/windeployqt.exe'
+          $clean = Join-Path $env:RUNNER_TEMP 'filemanager-clean-qt-map'
+          New-Item -ItemType Directory -Path $clean -ErrorAction Stop | Out-Null
+          $cleanExe = Join-Path $clean 'FileManager.exe'
+          Copy-Item -LiteralPath (Join-Path $bin 'FileManager.exe') -Destination $cleanExe -ErrorAction Stop
+          $stderrFile = Join-Path $env:RUNNER_TEMP 'filemanager-windeployqt.stderr.txt'
+          $sourceLines = @(& $deploy --dry-run --list source --no-translations --compiler-runtime --exclude-plugins qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql $cleanExe 2> $stderrFile)
+          if ($LASTEXITCODE -ne 0 -or $sourceLines.Count -eq 0) {
+            throw 'Qt dry-run deployment source listing failed.'
+          }
+          $sourceList = Join-Path $env:RUNNER_TEMP 'filemanager-windeployqt-sources.txt'
+          $sourceLines | Set-Content -LiteralPath $sourceList -Encoding utf8NoBOM
+          $report = Join-Path $env:RUNNER_TEMP 'filemanager-shader-origins.json'
+          $sourceHash = (Get-FileHash -LiteralPath $sourceList -Algorithm SHA256).Hash
+          $toolHash = (Get-FileHash -LiteralPath $deploy -Algorithm SHA256).Hash
+          $output = & python tools/Verify-ShaderCompilerOrigins.py --source-list $sourceList --source-list-sha256 $sourceHash --selected-qt-prefix $env:FILE_MANAGER_QT_PREFIX --deploy-tool $deploy --deploy-tool-sha256 $toolHash --stage $bin --report $report 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The staged shader DLLs do not match Qt-listed source files.'
+          }
+          $origin = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($origin.status -cne 'matched' -or @($origin.files).Count -ne 3) {
+            throw 'Shader compiler origin report is incomplete.'
+          }
+          foreach ($file in $origin.files) {
+            Write-Output "$($file.name) SHA-256 $($file.sha256)"
+          }
+          Write-Output "Qt deployment tool SHA-256 $toolHash"
 
       - name: Overlay rebuilt media and run the affected V1 checks
         run: |
@@ -275,7 +350,8 @@ jobs:
           foreach ($case in @(
             @{ name='FileManagerVisualTests'; argument='--invariants-only' },
             @{ name='FileManagerWorkspaceTests'; argument='--cloud-preview-only' },
-            @{ name='FileManagerWorkspaceTests'; argument='--ffmpeg-candidate-only' }
+            @{ name='FileManagerWorkspaceTests'; argument='--ffmpeg-candidate-only' },
+            @{ name='FileManagerWorkspaceTests'; argument='--ffmpeg-video-only' }
           )) {
             $label = "$($case.name)-$($case.argument.TrimStart('-'))"
             $out = Join-Path $env:RUNNER_TEMP "$label.stdout.txt"
@@ -296,6 +372,26 @@ jobs:
             }
             Write-Output "$label passed; raw stdout/stderr stay on the runner."
           }
+          $mp4 = Join-Path $env:RUNNER_TEMP 'fm-media-build/sources/qt/qtmultimedia-everywhere-src-6.11.2/tests/auto/integration/qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4'
+          $mp4Hash = '0593922D7CBFC91FC773940D00FFE32A060A83C8A1986B7BEDEF5EB3A74C5F39'
+          if ((Get-FileHash -LiteralPath $mp4 -Algorithm SHA256).Hash -cne $mp4Hash) {
+            throw 'The reviewed Qt compressed-video fixture differs.'
+          }
+          $mp4Out = Join-Path $env:RUNNER_TEMP 'ffmpeg-compressed-video.stdout.txt'
+          $mp4Err = Join-Path $env:RUNNER_TEMP 'ffmpeg-compressed-video.stderr.txt'
+          $mp4Process = Start-Process -FilePath (Join-Path $bin 'FileManagerWorkspaceTests.exe') -ArgumentList @('--ffmpeg-compressed-video-only', $mp4, $mp4Hash) -PassThru -WindowStyle Hidden -RedirectStandardOutput $mp4Out -RedirectStandardError $mp4Err
+          try {
+            if (-not $mp4Process.WaitForExit(180000)) {
+              $mp4Process.Kill($true)
+              throw 'Compressed-video check exceeded 180 seconds.'
+            }
+            if ($mp4Process.ExitCode -ne 0) {
+              throw 'Compressed-video check failed.'
+            }
+          } finally {
+            $mp4Process.Dispose()
+          }
+          Write-Output 'Restricted compressed-video check passed; raw logs stay on the runner.'
 
       - name: Record the exact V1 candidate bytes locally
         run: |

@@ -1298,7 +1298,7 @@ void MainWindow::showAboutSupport()
         "Local event history: %1; path-free codes only; seven-day retention; "
         "512-event maximum.\n"
         "Exports exclude paths and filenames by default. Crash dumps are not collected by the "
-        "application in this development build.\n"
+        "application.\n"
         "Support data remains in the current user's local application-data area. Use Preferences "
         "to export diagnostics or clear retained data.")
         .arg(diagnosticLog_.isLoading() ? QStringLiteral("loading")

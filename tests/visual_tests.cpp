@@ -1643,6 +1643,7 @@ int main(int argc, char* argv[])
             && dependencies && dependencies->text().contains("minizip-ng 4.2.2")
             && diagnostics && diagnostics->text().contains("path-free codes only")
             && diagnostics->text().contains("Crash dumps are not collected")
+            && !diagnostics->text().contains("development build")
             && copySupport;
         if (about)
             about->reject();
