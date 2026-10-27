@@ -1,0 +1,8 @@
+--- a/src/3rdparty/ffmpeg/qt_attribution.json
++++ b/src/3rdparty/ffmpeg/qt_attribution.json
+@@ -9 +9 @@
+-        "DownloadLocation": "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n7.1.3.tar.gz",
++        "DownloadLocation": "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n7.1.5.tar.gz",
+@@ -17 +17 @@
+-        "Version": "7.1.3",
++        "Version": "7.1.5",

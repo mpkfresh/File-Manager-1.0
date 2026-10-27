@@ -2,7 +2,8 @@ name: Reviewed Windows release build
 
 # Dispatch only after the owner approves the exact reviewed source commit and
 # the local source-manifest-to-commit guard has passed. This workflow neither
-# signs nor uploads a release artifact.
+# signs nor uploads a release artifact. Its media outputs remain unapproved
+# until the owner reviews exact hosted bytes and the V1-to-V2 handoff.
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +17,7 @@ permissions: {}
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 180
     defaults:
       run:
         shell: pwsh
@@ -64,6 +65,31 @@ jobs:
           }
           Write-Output "Reviewed commit: $head"
 
+      - name: Preflight the pinned Windows media toolchain
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) `
+            'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsRoot = @(& $vswhere -latest -version '[17.0,18.0)' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath)
+          if ($LASTEXITCODE -or $vsRoot.Count -ne 1) {
+            throw 'One Visual Studio 2022 C++ installation is required.'
+          }
+          foreach ($required in @(
+            (Join-Path $vsRoot[0] 'VC/Auxiliary/Build/vcvars64.bat'),
+            (Join-Path $vsRoot[0] 'VC/Tools/MSVC/14.44.35207')
+          )) {
+            if (-not (Test-Path -LiteralPath $required)) {
+              throw 'The pinned MSVC 14.44.35207 toolchain is unavailable.'
+            }
+          }
+          foreach ($tool in @('7z.exe', 'cmake.exe', 'ninja.exe',
+              'python.exe', 'git.exe')) {
+            (Get-Command $tool -ErrorAction Stop).Source | Out-Null
+          }
+          Write-Output 'Pinned Windows media build prerequisites are present.'
+
       - name: Fetch and hash-pin the proposed Qt 6.11.2 MSVC 2022 kit
         run: |
           $ErrorActionPreference = 'Stop'
@@ -102,6 +128,52 @@ jobs:
           }
           "FILE_MANAGER_QT_PREFIX=$prefix" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output 'Qt kit is hash-pinned; final acceptance still requires V1 byte comparison and attribution.'
+
+      - name: Rebuild the reviewed seven-file media candidate on the hosted runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolRoot = Join-Path $env:RUNNER_TEMP 'fm-media-tools'
+          $companionRoot = Join-Path $env:RUNNER_TEMP 'fm-media-companion'
+          $mediaRoot = Join-Path $env:RUNNER_TEMP 'fm-media-build'
+          $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
+          & ./tools/Acquire-HostedMediaTools.ps1 -OutputRoot $toolRoot -SevenZipExe $sevenZip
+          $companionText = Join-Path $env:GITHUB_WORKSPACE 'packaging/media-source-companion-text'
+          & ./tools/Assemble-HostedMediaCompanion.ps1 `
+            -TextDirectory $companionText `
+            -OutputDirectory $companionRoot
+          $shaderConfigs = @(Get-ChildItem -LiteralPath (Join-Path $toolRoot 'qtshadertools') `
+            -Recurse -File -Filter Qt6ShaderToolsConfig.cmake)
+          if ($shaderConfigs.Count -ne 1) { throw 'ShaderTools prefix is ambiguous.' }
+          $shaderPrefix = $shaderConfigs[0].Directory.Parent.Parent.Parent.FullName
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) `
+            'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsRoot = @(& $vswhere -latest -version '[17.0,18.0)' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath)
+          if ($LASTEXITCODE -or $vsRoot.Count -ne 1) {
+            throw 'One Visual Studio 2022 C++ installation is required.'
+          }
+          $vcvars = Join-Path $vsRoot[0] 'VC/Auxiliary/Build/vcvars64.bat'
+          & ./tools/Build-ReviewedMediaFromCompanion.ps1 `
+            -CompanionDirectory $companionRoot -OutputRoot $mediaRoot `
+            -MsysBin (Join-Path $toolRoot 'msys64/usr/bin') `
+            -QtPrefix $env:FILE_MANAGER_QT_PREFIX `
+            -ShaderToolsPrefix $shaderPrefix -VcVars64 $vcvars `
+            -CMakeExe (Get-Command cmake.exe -ErrorAction Stop).Source `
+            -NinjaExe (Get-Command ninja.exe -ErrorAction Stop).Source `
+            -PythonExe (Get-Command python.exe -ErrorAction Stop).Source `
+            -GitExe (Get-Command git.exe -ErrorAction Stop).Source
+          $result = Get-Content -LiteralPath (Join-Path $mediaRoot 'reports/media-build-result.json') `
+            -Raw | ConvertFrom-Json
+          if ($result.status -cne 'built-unreviewed' -or $result.releaseApproved -ne $false -or
+              @($result.mediaFiles.PSObject.Properties).Count -ne 7) {
+            throw 'Media build did not leave exactly seven review-only outputs.'
+          }
+          "FILE_MANAGER_MEDIA_STAGE=$(Join-Path $mediaRoot 'seven-media-stage')" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FILE_MANAGER_MEDIA_RESULT=$(Join-Path $mediaRoot 'reports/media-build-result.json')" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'Seven media candidate files built and hash-recorded on GitHub-hosted Windows; no package or artifact uploaded.'
 
       - name: Configure and build the reviewed Release preset
         run: |
@@ -144,9 +216,51 @@ jobs:
           if ($LASTEXITCODE) { throw 'The consumed dependency sources do not match their pinned commits.' }
           Get-Content -LiteralPath $report -Raw
 
-      - name: Run the V1 focused source-build checks
+      - name: Check the base Qt deployment before replacing media
         run: |
           $ErrorActionPreference = 'Stop'
+          & ctest --test-dir out/build/windows-release-reviewed -C Release `
+            --timeout 180 -R '^FileManagerDependencyTests$'
+          if ($LASTEXITCODE) { throw 'Base Qt deployment check failed.' }
+          Write-Output 'Base deployment passed; the final seven-file payload remains a separate gate.'
+
+      - name: Overlay rebuilt media and run the affected V1 checks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $media = Get-Content -LiteralPath $env:FILE_MANAGER_MEDIA_RESULT -Raw |
+            ConvertFrom-Json
+          if ($media.status -cne 'built-unreviewed' -or $media.releaseApproved -ne $false) {
+            throw 'Only a seven-file review candidate may enter this V1 runtime.'
+          }
+          $bin = 'out/build/windows-release-reviewed/Release'
+          $mediaNames = @('avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll',
+            'swresample-5.dll', 'swscale-8.dll', 'Qt6Multimedia.dll',
+            'multimedia/ffmpegmediaplugin.dll')
+          if (@($media.mediaFiles.PSObject.Properties).Count -ne $mediaNames.Count) {
+            throw 'The rebuilt media manifest is not exactly seven files.'
+          }
+          foreach ($relative in $mediaNames) {
+            $property = $media.mediaFiles.PSObject.Properties[$relative]
+            if ($null -eq $property -or [string]$property.Value -cnotmatch '^[A-Fa-f0-9]{64}$') {
+              throw "The media manifest lacks $relative."
+            }
+            $source = Join-Path $env:FILE_MANAGER_MEDIA_STAGE $relative.Replace('/', '\')
+            $target = Join-Path $bin $relative.Replace('/', '\')
+            $sourceItem = Get-Item -LiteralPath $source -Force -ErrorAction Stop
+            if ($sourceItem -isnot [IO.FileInfo] -or
+                ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ine $property.Value) {
+              throw "The rebuilt media source differs: $relative"
+            }
+            Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
+            $actual = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+            if ($actual -ine $property.Value) { throw "Media overlay differs: $relative" }
+            Write-Output "$relative SHA-256 $actual"
+          }
+          $vendorSbom = Join-Path $bin 'sbom/qtmultimedia-6.11.2.cdx.json'
+          if (Test-Path -LiteralPath $vendorSbom -PathType Leaf) {
+            Remove-Item -LiteralPath $vendorSbom -ErrorAction Stop
+          }
           $testRoot = Join-Path $env:RUNNER_TEMP 'filemanager-v1-test-profile'
           $env:TMP = Join-Path $testRoot 'temp'
           $env:TEMP = $env:TMP
@@ -155,22 +269,90 @@ jobs:
           foreach ($directory in @($env:TMP, $env:LOCALAPPDATA, $env:APPDATA)) {
             New-Item -ItemType Directory -Path $directory -ErrorAction Stop | Out-Null
           }
-          $build = 'out/build/windows-release-reviewed'
-          & ctest --test-dir $build -C Release --output-on-failure --timeout 180 -R '^FileManagerCoreTests$|^FileManagerDependencyTests$'
-          if ($LASTEXITCODE) { throw 'Core or deployment check failed.' }
-          $bin = Join-Path $build 'Release'
+          & ctest --test-dir out/build/windows-release-reviewed -C Release `
+            --timeout 180 -R '^FileManagerCoreTests$'
+          if ($LASTEXITCODE) { throw 'Core check failed on the rebuilt-media runtime.' }
           foreach ($case in @(
             @{ name='FileManagerVisualTests'; argument='--invariants-only' },
-            @{ name='FileManagerWorkspaceTests'; argument='--cloud-preview-only' }
+            @{ name='FileManagerWorkspaceTests'; argument='--cloud-preview-only' },
+            @{ name='FileManagerWorkspaceTests'; argument='--ffmpeg-candidate-only' }
           )) {
-            $out = Join-Path $env:RUNNER_TEMP "$($case.name).stdout.txt"
-            $err = Join-Path $env:RUNNER_TEMP "$($case.name).stderr.txt"
-            $process = Start-Process -FilePath (Join-Path $bin "$($case.name).exe") -ArgumentList $case.argument -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-            if (-not $process.WaitForExit(180000)) {
-              $process.Kill($true)
-              throw "$($case.name) exceeded 180 seconds."
+            $label = "$($case.name)-$($case.argument.TrimStart('-'))"
+            $out = Join-Path $env:RUNNER_TEMP "$label.stdout.txt"
+            $err = Join-Path $env:RUNNER_TEMP "$label.stderr.txt"
+            $process = Start-Process -FilePath (Join-Path $bin "$($case.name).exe") `
+              -ArgumentList $case.argument -PassThru -WindowStyle Hidden `
+              -RedirectStandardOutput $out -RedirectStandardError $err
+            try {
+              if (-not $process.WaitForExit(180000)) {
+                $process.Kill($true)
+                throw "$label exceeded 180 seconds."
+              }
+              if ($process.ExitCode -ne 0) {
+                throw "$label failed: $($process.ExitCode)"
+              }
+            } finally {
+              $process.Dispose()
             }
-            Get-Content -LiteralPath $out
-            Get-Content -LiteralPath $err
-            if ($process.ExitCode -ne 0) { throw "$($case.name) failed: $($process.ExitCode)" }
+            Write-Output "$label passed; raw stdout/stderr stay on the runner."
           }
+
+      - name: Record the exact V1 candidate bytes locally
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = 'out/build/windows-release-reviewed/Release'
+          $media = Get-Content -LiteralPath $env:FILE_MANAGER_MEDIA_RESULT -Raw |
+            ConvertFrom-Json
+          $contract = @(Get-Content -LiteralPath 'packaging/release-payload-1.0.txt' |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -and -not $_.StartsWith('#') })
+          if ($contract.Count -ne 58 -or @($contract | Select-Object -Unique).Count -ne 58) {
+            throw 'The 1.0 release path contract differs from 58 unique paths.'
+          }
+          $present = [Collections.Generic.List[object]]::new()
+          $missing = [Collections.Generic.List[string]]::new()
+          foreach ($relative in $contract) {
+            if ($relative -notmatch '^[A-Za-z0-9._/-]+$' -or
+                $relative.StartsWith('/') -or $relative.Contains('..')) {
+              throw 'The release path contract contains an unsafe path.'
+            }
+            $path = Join-Path $bin $relative.Replace('/', '\')
+            if (-not (Test-Path -LiteralPath $path)) {
+              $missing.Add($relative)
+              continue
+            }
+            $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if ($item -isnot [IO.FileInfo] -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw "The V1 payload candidate has an unsafe item: $relative"
+            }
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            $mediaEntry = $media.mediaFiles.PSObject.Properties[$relative]
+            if ($null -ne $mediaEntry -and $hash -ine [string]$mediaEntry.Value) {
+              throw "The V1 media candidate differs: $relative"
+            }
+            $present.Add([ordered]@{ path=$relative; bytes=$item.Length; sha256=$hash })
+          }
+          if (@($media.mediaFiles.PSObject.Properties).Count -ne 7) {
+            throw 'The media record must name exactly seven candidate files.'
+          }
+          foreach ($mediaEntry in $media.mediaFiles.PSObject.Properties) {
+            if ($mediaEntry.Name -notin @($present | ForEach-Object { $_.path })) {
+              throw 'A rebuilt media file is absent from the V1 candidate.'
+            }
+          }
+          $record = [ordered]@{
+            schema = 'file-manager-v1-local-handoff-candidate-v1'
+            status = 'review-only'
+            sourceCommit = $env:GITHUB_SHA
+            mediaBuildResultSha256 = (Get-FileHash -LiteralPath `
+              $env:FILE_MANAGER_MEDIA_RESULT -Algorithm SHA256).Hash
+            presentFiles = $present.ToArray()
+            missingReleasePaths = $missing.ToArray()
+            releaseApproved = $false
+            uploaded = $false
+          }
+          $record | ConvertTo-Json -Depth 6 |
+            Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP `
+              'filemanager-v1-handoff-candidate.json') -Encoding utf8NoBOM
+          Write-Output "Recorded $($present.Count) of 58 release paths in a local review-only manifest; no artifact uploaded."

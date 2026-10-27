@@ -182,6 +182,10 @@ function Get-ReviewedFfmpegInputs {
         if ($record.PSObject.Properties['qtMultimediaSbomSha256']) {
             throw 'The vendor Qt Multimedia SBOM cannot describe the reviewed media.'
         }
+    }
+    # A review-only candidate with a provenance record must still bind its
+    # contents to the seven actual bytes. Release approval is a separate gate.
+    if ($provenanceHash) {
         $provenance = Get-Content -Raw -LiteralPath $sources['manifest/media-provenance.json'] |
             ConvertFrom-Json
         $expectedProperties = @('schema', 'ffmpegVersion',

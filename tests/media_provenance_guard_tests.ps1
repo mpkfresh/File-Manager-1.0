@@ -130,6 +130,48 @@ try {
     }
 
     $results = [Collections.Generic.List[object]]::new()
+    $manifest.status = 'review-only'
+    $manifest.releaseApproved = $false
+    $manifest.pluginProvenanceCleared = $false
+    $manifest.moduleProvenanceCleared = $false
+    Write-FixtureJson $manifestPath $manifest
+    $reviewAccepted = Get-ReviewedFfmpegInputs -Workspace $workspace `
+        -ManifestPath $manifestRelative `
+        -ManifestSha256 (Get-FixtureHash $manifestPath) `
+        -RuntimeDirectory $runtimeRoot
+    if ($reviewAccepted.Sources.Count -ne 8) {
+        throw 'Synthetic review-only fixture did not bind its eight inputs.'
+    }
+    $provenance.qtMultimediaNinjaGraphSha256 =
+        '2222222222222222222222222222222222222222222222222222222222222222'
+    Write-FixtureJson $provenancePath $provenance
+    $manifest.mediaProvenanceSha256 = Get-FixtureHash $provenancePath
+    Write-FixtureJson $manifestPath $manifest
+    try {
+        [void](Get-ReviewedFfmpegInputs -Workspace $workspace `
+            -ManifestPath $manifestRelative `
+            -ManifestSha256 (Get-FixtureHash $manifestPath) `
+            -RuntimeDirectory $runtimeRoot)
+    } catch {
+        if ($_.Exception.Message -cnotlike '*source/build contract differs*') {
+            throw
+        }
+        $results.Add([pscustomobject]@{
+            case = 'review-only-build-graph-mismatch'; refused = $true
+        })
+    }
+    if ($results.Count -ne 1) {
+        throw 'Review-only guard accepted a mismatched build graph.'
+    }
+    $provenance.qtMultimediaNinjaGraphSha256 = $manifest.qtMultimediaNinjaGraphSha256
+    Write-FixtureJson $provenancePath $provenance
+    $manifest.mediaProvenanceSha256 = Get-FixtureHash $provenancePath
+    $manifest.status = 'release-approved'
+    $manifest.releaseApproved = $true
+    $manifest.pluginProvenanceCleared = $true
+    $manifest.moduleProvenanceCleared = $true
+    Write-FixtureJson $manifestPath $manifest
+
     $manifest.releaseApproved = $false
     Write-FixtureJson $manifestPath $manifest
     $manifestHash = Get-FixtureHash $manifestPath
@@ -155,6 +197,7 @@ try {
     [pscustomobject]@{
         status = 'passed-synthetic-guard-only'
         acceptedFixture = $true
+        reviewOnlyAcceptedFixture = $true
         refusalCases = @($results)
         actualMediaReleaseApproved = $false
         packageBuilt = $false

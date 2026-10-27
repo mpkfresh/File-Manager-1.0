@@ -1,0 +1,5 @@
+--- a/zconf.h
++++ b/zconf.h
+@@ -436 +436 @@
+-#ifdef HAVE_UNISTD_H    /* may be set to #if 1 by ./configure */
++#if defined(HAVE_UNISTD_H) && HAVE_UNISTD_H    /* 0 means absent */
