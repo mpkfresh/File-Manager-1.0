@@ -1,9 +1,10 @@
 # Security policy
 
 File Manager is still a pre-1.0 development build and is not yet offered as a supported public
-release. Do not redistribute it as a stable product. A public repository's private
-vulnerability-reporting control and the reviewed release-page details must be in place before
-publishing a signed 1.0 release. A separately reviewed unsigned prerelease, if approved, must
+release. Do not redistribute it as a stable product. Private vulnerability
+reporting is enabled for this public source repository. Reviewed release-page
+details are still required before publishing a signed 1.0 release. A separately
+reviewed unsigned prerelease, if approved, must
 be labeled unsigned and does not constitute 1.0 acceptance.
 
 ## Dependency and response policy
@@ -37,9 +38,8 @@ update in the background.
 ## Reporting
 
 Do not attach private filenames, paths, document contents, crash dumps or unredacted diagnostics to
-a public issue. The owner has selected GitHub private vulnerability reporting for the future public
-repository. The reporting form is available only after that repository exists and its owner enables
-the feature; this development build has no operative public reporting channel yet. Once enabled,
-use the repository's Security → Report a vulnerability control. Redacted diagnostic JSON can be
+a public issue. For a private report, use this repository's Security → Advisories →
+Report a vulnerability control. GitHub now exposes that form publicly, though File Manager
+has no supported 1.0 release yet. Redacted diagnostic JSON can be
 reviewed before sharing; paths are structurally absent unless the separate default-off inclusion
 control is explicitly enabled.

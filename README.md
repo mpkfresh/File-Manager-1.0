@@ -1,7 +1,7 @@
 # File Manager
 
-**Local public-source draft; not approved for publication.** File Manager is
-a Windows file manager written in C++20 and Qt 6. The last broadly verified
+**Public development source; no 1.0 release yet.** File Manager is a Windows
+file manager written in C++20 and Qt 6. The last broadly verified
 development build is `0.9.5-rc.7`; later source and affected checks do not
 establish a supported 1.0 release.
 The October 24 development build passed affected Preferences and Visual
@@ -75,10 +75,11 @@ test or package results cannot verify it. The preset outputs to
 A separate `windows-release-reviewed` preset selects Visual Studio 2022,
 requires an explicit `FILE_MANAGER_QT_PREFIX` for the matching MSVC 2022 Qt
 kit, and sets proposed 1.0 identity. It has not completed a clean source
-build. The selected Qt 6.11.2 component and compiler inputs still need
-exact-byte review in the final source/build gate.
+build. A local preflight matched 28 selected files from the official Qt
+6.11.2 component archives to the installed kit; the seven replacement media
+files, compiler inputs and final source/build gate remain open.
 
-Before this draft becomes the 1.0 repository README, V1 must build these
+Before this README can describe a verified 1.0 release, V1 must build these
 defaults from the reviewed source commit and inspect all executable and
 package identities. An affected local development build and its approved
 no-rebuild continuation do not replace the final reviewed-source V1 build.
@@ -108,5 +109,6 @@ gate in an interactive Windows user session, since a restricted sandbox
 cannot exercise every Windows API. Clean-machine installed acceptance is
 also required before 1.0.
 
-This draft source tree is not an official download location. No unsigned
-prerelease or signed 1.0 package has been published or authorized here.
+This repository publishes development source, not an official binary download.
+No unsigned prerelease or signed 1.0 package has been published or authorized
+here.
