@@ -148,8 +148,9 @@ Get-PinnedDownload $shaderUrl $shaderArchive $shaderHash $shaderBytes
 Invoke-Bounded 'msys-extract' $msysArchive @('-y', "-o$root") 180
 $msysBin = Join-Path $root 'msys64/usr/bin'
 $cygpath = Join-Path $msysBin 'cygpath.exe'
-if (-not (Test-Path -LiteralPath $cygpath -PathType Leaf)) {
-    throw 'The signed MSYS2 base did not provide cygpath.'
+if (-not (Test-Path -LiteralPath $cygpath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $msysBin 'pacman.exe') -PathType Leaf)) {
+    throw 'The signed MSYS2 base did not provide cygpath and pacman.'
 }
 $rootPosix = @(& $cygpath -u $root)
 if ($LASTEXITCODE -ne 0 -or $rootPosix.Count -ne 1 -or
@@ -170,8 +171,10 @@ $pacmanCommand = "pacman --config '$($rootPosix[0])/pacman-local-only.conf' -U -
     ($packagePaths -join ' ')
 $env:MSYSTEM = 'MSYS'
 $env:MSYS2_PATH_TYPE = 'strict'
+# The signed MSYS2 login profile supplies /usr/bin; without it, pacman is
+# absent from Bash's command path on a clean hosted runner.
 Invoke-Bounded 'msys-local-packages' (Join-Path $msysBin 'bash.exe') `
-    @('--noprofile', '--norc', '-lc', $pacmanCommand) 240
+    @('-lc', $pacmanCommand) 240
 foreach ($entry in $expectedTools.GetEnumerator()) {
     Assert-Hash (Join-Path $msysBin $entry.Key) $entry.Value
 }
