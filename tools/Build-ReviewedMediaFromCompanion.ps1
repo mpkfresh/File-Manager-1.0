@@ -167,7 +167,7 @@ foreach ($directory in @($companion, $MsysBin, $QtPrefix,
 Assert-Hash (Join-Path $companion 'checksums.sha256') $checksumListHash
 $checksumEntries = [ordered]@{}
 foreach ($line in Get-Content -LiteralPath (Join-Path $companion 'checksums.sha256')) {
-    if ($line -cnotmatch '^([A-F0-9]{64})  ([A-Za-z0-9./-]+)$') {
+    if ($line -cnotmatch '^([A-F0-9]{64})  ([A-Za-z0-9._/-]+)$') {
         throw 'The reviewed companion checksum list has an invalid entry.'
     }
     if ($checksumEntries.Contains($Matches[2])) { throw 'Duplicate companion path.' }

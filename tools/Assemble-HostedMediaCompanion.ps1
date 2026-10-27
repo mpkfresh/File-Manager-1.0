@@ -89,7 +89,7 @@ if ($output.StartsWith($textRoot + '\',
 Assert-Hash (Join-Path $textRoot 'checksums.sha256') $checksumListHash
 $checksums = [ordered]@{}
 foreach ($line in Get-Content -LiteralPath (Join-Path $textRoot 'checksums.sha256')) {
-    if ($line -cnotmatch '^([A-F0-9]{64})  ([A-Za-z0-9./-]+)$') {
+    if ($line -cnotmatch '^([A-F0-9]{64})  ([A-Za-z0-9._/-]+)$') {
         throw 'The media companion checksum format changed.'
     }
     if ($checksums.Contains($Matches[2])) { throw 'Duplicate media companion path.' }
