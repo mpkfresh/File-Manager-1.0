@@ -1,0 +1,71 @@
+# Build output
+/build*/
+/out/
+/cmake-build-*/
+
+# Local acceptance evidence, VM disks, and generated release packages
+/Testing/
+/package-staging*/
+/package-artifacts/
+/rc*-package-staging*/
+/rc*-package-artifacts*/
+/*.iso
+*.vdi
+*.vhd
+*.vhdx
+*.vbox
+*.sav
+*.dpapi
+
+# CMake user- and machine-specific configuration
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+
+# Visual Studio
+/.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+*.qtc.user
+
+# Other editors
+/.vscode/
+/.idea/
+*~
+*.swp
+*.autosave
+
+# Compiled and debug artifacts
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# Runtime output
+*.log
+*.dmp
+/crashdumps/
+
+# Local settings, databases, and indexes
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+/local-data/
+/test-output/
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store

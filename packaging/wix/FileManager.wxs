@@ -1,0 +1,80 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="$(ProductName)"
+           Version="$(ProductVersion)"
+           Manufacturer="$(Manufacturer)"
+           UpgradeCode="5429857B-08FB-4F84-B33F-25C1B23692CA"
+           Scope="perUser"
+           InstallerVersion="500"
+           Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(ProductName) is already installed." />
+    <!-- Detect the 0.x MSI family by UpgradeCode only. Its user data is not
+         read, migrated or removed by this 1.0 package. -->
+    <Upgrade Id="9E0D655D-A984-4D6E-B3A7-76BF9CB47F41">
+      <UpgradeVersion Minimum="0.0.0" Maximum="1.0.0" IncludeMaximum="no"
+                      OnlyDetect="yes" Property="FM_PRE_1_0_PRESENT" />
+    </Upgrade>
+    <Launch Condition="Installed OR NOT FM_PRE_1_0_PRESENT"
+            Message="Uninstall File Manager 0.x in Windows Settings before installing 1.0. Your earlier settings and file labels remain on this PC but are not imported." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ProductIcon" SourceFile="$(BrandingIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+
+    <!-- AppSearch overrides an initial/command-line INSTALLFOLDER when an
+         installation already owns a saved location. Keep integration paths stable. -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="ExistingInstallFolder"
+                      Root="HKCU" Key="$(InstallerRegistryKey)" Name="InstallPath"
+                      Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="FM_EXISTING_INSTALLFOLDER">
+      <RegistrySearchRef Id="ExistingInstallFolder" />
+    </Property>
+    <Launch Condition="REMOVE~=&quot;ALL&quot; OR (NOT Installed AND NOT WIX_UPGRADE_DETECTED) OR FM_EXISTING_INSTALLFOLDER"
+            Message="The existing installation folder could not be recovered. Restore File Manager's Windows integrations and uninstall the existing version before reinstalling. Moving the app during an upgrade is not supported." />
+
+    <StandardDirectory Id="PerUserProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="$(InstallFolderName)" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="$(ProductName)">
+        <Component Id="StartMenuShortcut" Guid="71E7BB8E-42C7-4701-8CD5-1F9361F98687">
+          <Shortcut Id="ApplicationStartMenuShortcut"
+                    Name="$(ProductName)"
+                    Description="$(ProductName)"
+                    Target="[INSTALLFOLDER]FileManager.exe"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+          <RegistryValue Root="HKCU"
+                         Key="$(InstallerRegistryKey)"
+                         Name="StartMenuShortcut"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+          <RegistryValue Root="HKCU"
+                         Key="$(InstallerRegistryKey)"
+                         Name="InstallPath"
+                         Type="string"
+                         Value="[INSTALLFOLDER]" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="$(ProductName)" Level="1">
+      <ComponentGroupRef Id="PayloadComponents" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <CustomAction Id="CleanupPreviewSandbox"
+                  FileRef="FileManagerMaintenanceExecutable"
+                  ExeCommand="--uninstall-cleanup"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="CleanupPreviewSandbox"
+              Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

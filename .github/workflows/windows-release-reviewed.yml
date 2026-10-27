@@ -1,0 +1,176 @@
+name: Reviewed Windows release build
+
+# Dispatch only after the owner approves the exact reviewed source commit and
+# the local source-manifest-to-commit guard has passed. This workflow neither
+# signs nor uploads a release artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      approved_commit:
+        description: Full reviewed source commit ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Require the reviewed dispatch commit
+        env:
+          APPROVED_COMMIT: ${{ inputs.approved_commit }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:APPROVED_COMMIT -cnotmatch '^[0-9a-fA-F]{40}$') {
+            throw 'A full 40-character reviewed commit ID is required.'
+          }
+          if ($env:GITHUB_SHA.ToLowerInvariant() -cne $env:APPROVED_COMMIT.ToLowerInvariant()) {
+            throw 'The dispatched workflow revision differs from the reviewed commit.'
+          }
+
+      - name: Fetch only the reviewed public commit
+        env:
+          APPROVED_COMMIT: ${{ inputs.approved_commit }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:REPOSITORY -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+            throw 'Unexpected GitHub repository identity.'
+          }
+          $remote = "$env:GITHUB_SERVER_URL/$env:REPOSITORY.git"
+          & git init $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE) { throw 'Git init failed.' }
+          & git -C $env:GITHUB_WORKSPACE remote add origin $remote
+          if ($LASTEXITCODE) { throw 'Git remote setup failed.' }
+          & git -C $env:GITHUB_WORKSPACE fetch --no-tags --depth=1 origin $env:GITHUB_REF
+          if ($LASTEXITCODE) { throw 'Git fetch failed.' }
+          & git -C $env:GITHUB_WORKSPACE checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE) { throw 'Git checkout failed.' }
+          $head = (& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -or $head.ToLowerInvariant() -cne $env:APPROVED_COMMIT.ToLowerInvariant()) {
+            throw 'Checked-out source is not the approved commit.'
+          }
+          $status = @(& git -C $env:GITHUB_WORKSPACE status --porcelain=v1 --untracked-files=all)
+          if ($LASTEXITCODE -or $status.Count -ne 0) {
+            throw 'The reviewed checkout is not clean.'
+          }
+          if (-not (Test-Path -LiteralPath '.github/workflows/windows-release-reviewed.yml' -PathType Leaf)) {
+            throw 'The reviewed workflow is absent from the checked-out commit.'
+          }
+          Write-Output "Reviewed commit: $head"
+
+      - name: Fetch and hash-pin the proposed Qt 6.11.2 MSVC 2022 kit
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6112/qt6_6112_msvc2022_64'
+          $platform = 'Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z'
+          $components = @(
+            @{ name='qtbase'; path='qt.qt6.6112.win64_msvc2022_64'; sha='FD984B7264361B4DD3FD2A417702CA1258E4086268F2EE6A69B9A393D9C3F6BB' },
+            @{ name='qtsvg'; path='qt.qt6.6112.win64_msvc2022_64'; sha='417F44499C835B2303F3FF78043179BB23442F33D5D2816FBF7E8DBF275B1C89' },
+            @{ name='qttools'; path='qt.qt6.6112.win64_msvc2022_64'; sha='5F2B387A1F8055102B1388FF4EA743124ED6389D442F75C659728BB5C2A56946' },
+            @{ name='qtmultimedia'; path='qt.qt6.6112.addons.qtmultimedia.win64_msvc2022_64'; sha='24D73C45FEFE5E260AA9A99EEA1AEA48ADCAD54F93BDDAA3EC5B0574B55F57C7' }
+          )
+          $archives = Join-Path $env:RUNNER_TEMP 'filemanager-qt-archives'
+          $kit = Join-Path $env:RUNNER_TEMP 'filemanager-qt-kit'
+          New-Item -ItemType Directory -Path $archives,$kit -ErrorAction Stop | Out-Null
+          $extractor = (Get-Command 7z.exe -ErrorAction Stop).Source
+          foreach ($component in $components) {
+            $filename = "6.11.2-0-202608131017$($component.name)-$platform"
+            $uri = "$base/$($component.path)/$filename"
+            $archive = Join-Path $archives $filename
+            Invoke-WebRequest -Uri $uri -OutFile $archive -ErrorAction Stop
+            $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+            if ($hash -cne $component.sha) {
+              throw "Official Qt archive hash mismatch: $($component.name)"
+            }
+            & $extractor x $archive "-o$kit" -y
+            if ($LASTEXITCODE) { throw "Qt extraction failed: $($component.name)" }
+            Write-Output "$($component.name) archive SHA-256 $hash"
+          }
+          $configs = @(Get-ChildItem -LiteralPath $kit -Filter Qt6Config.cmake -File -Recurse)
+          if ($configs.Count -ne 1) { throw 'Expected exactly one extracted Qt6Config.cmake.' }
+          $prefix = $configs[0].Directory.Parent.Parent.Parent.FullName
+          foreach ($required in @('bin/Qt6Core.dll','bin/Qt6Multimedia.dll','bin/windeployqt.exe')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $prefix $required) -PathType Leaf)) {
+              throw "Qt kit is missing $required"
+            }
+          }
+          "FILE_MANAGER_QT_PREFIX=$prefix" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'Qt kit is hash-pinned; final acceptance still requires V1 byte comparison and attribution.'
+
+      - name: Configure and build the reviewed Release preset
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Output "Runner image: $env:ImageOS $env:ImageVersion"
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsVersion = @(& $vswhere -latest -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion)
+          if ($LASTEXITCODE -or $vsVersion.Count -ne 1 -or [string]::IsNullOrWhiteSpace($vsVersion[0])) {
+            throw 'VS2022 C++ toolchain is unavailable.'
+          }
+          Write-Output "VS2022 version: $($vsVersion[0])"
+          & cmake --version
+          if ($LASTEXITCODE) { throw 'CMake is unavailable.' }
+          & cmake --preset windows-release-reviewed
+          if ($LASTEXITCODE) { throw 'Reviewed Release configure failed.' }
+          Get-Content 'out/build/windows-release-reviewed/CMakeCache.txt' |
+            Select-String '^CMAKE_(VS_WINDOWS_TARGET_PLATFORM_VERSION|CXX_COMPILER|C_COMPILER):' |
+            ForEach-Object { Write-Output $_.Line }
+          & cmake --build --preset windows-release-reviewed --parallel 4
+          if ($LASTEXITCODE) { throw 'Reviewed Release build failed.' }
+          $bin = 'out/build/windows-release-reviewed/Release'
+          foreach ($name in @('FileManager','FileManagerShellHost','FileManagerPreviewHost','FileManagerContextMenuHost','FileManagerMaintenance','FileManagerCoreTests','FileManagerVisualTests','FileManagerWorkspaceTests')) {
+            $path = Join-Path $bin "$name.exe"
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing built binary: $name" }
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            Write-Output "$name SHA-256 $hash"
+          }
+          foreach ($file in Get-ChildItem -LiteralPath $bin -Filter 'FileManager*Tests.exe' -File) {
+            Write-Output "$($file.Name) SHA-256 $((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)"
+          }
+          Write-Output "Qt Core SHA-256 $((Get-FileHash -LiteralPath (Join-Path $env:FILE_MANAGER_QT_PREFIX 'bin/Qt6Core.dll') -Algorithm SHA256).Hash)"
+
+      - name: Check consumed dependency source trees
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $record = 'out/build/windows-release-reviewed/file-manager-dependency-sources.txt'
+          $hash = (Get-FileHash -LiteralPath $record -Algorithm SHA256).Hash
+          $report = Join-Path $env:RUNNER_TEMP 'filemanager-dependency-origins.json'
+          & python tools/Verify-DependencySourceOrigins.py --record $record --record-sha256 $hash --report $report
+          if ($LASTEXITCODE) { throw 'The consumed dependency sources do not match their pinned commits.' }
+          Get-Content -LiteralPath $report -Raw
+
+      - name: Run the V1 focused source-build checks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testRoot = Join-Path $env:RUNNER_TEMP 'filemanager-v1-test-profile'
+          $env:TMP = Join-Path $testRoot 'temp'
+          $env:TEMP = $env:TMP
+          $env:LOCALAPPDATA = Join-Path $testRoot 'local-app-data'
+          $env:APPDATA = Join-Path $testRoot 'roaming-app-data'
+          foreach ($directory in @($env:TMP, $env:LOCALAPPDATA, $env:APPDATA)) {
+            New-Item -ItemType Directory -Path $directory -ErrorAction Stop | Out-Null
+          }
+          $build = 'out/build/windows-release-reviewed'
+          & ctest --test-dir $build -C Release --output-on-failure --timeout 180 -R '^FileManagerCoreTests$|^FileManagerDependencyTests$'
+          if ($LASTEXITCODE) { throw 'Core or deployment check failed.' }
+          $bin = Join-Path $build 'Release'
+          foreach ($case in @(
+            @{ name='FileManagerVisualTests'; argument='--invariants-only' },
+            @{ name='FileManagerWorkspaceTests'; argument='--cloud-preview-only' }
+          )) {
+            $out = Join-Path $env:RUNNER_TEMP "$($case.name).stdout.txt"
+            $err = Join-Path $env:RUNNER_TEMP "$($case.name).stderr.txt"
+            $process = Start-Process -FilePath (Join-Path $bin "$($case.name).exe") -ArgumentList $case.argument -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if (-not $process.WaitForExit(180000)) {
+              $process.Kill($true)
+              throw "$($case.name) exceeded 180 seconds."
+            }
+            Get-Content -LiteralPath $out
+            Get-Content -LiteralPath $err
+            if ($process.ExitCode -ne 0) { throw "$($case.name) failed: $($process.ExitCode)" }
+          }

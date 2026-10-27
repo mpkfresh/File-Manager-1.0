@@ -1,0 +1,9 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="breadcrumb-chevron.svg">icons/breadcrumb-chevron.svg</file>
+  </qresource>
+  <qresource prefix="/branding">
+    <file alias="app-logo.svg">branding/app-logo.svg</file>
+    <file alias="app-icon.ico">branding/app-icon.ico</file>
+  </qresource>
+</RCC>

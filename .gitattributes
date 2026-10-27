@@ -1,0 +1,3 @@
+# Preserve reviewed file bytes in Git on Windows and CI.
+# The release source verifier compares Git blobs with SHA-256 of staged files.
+* -text

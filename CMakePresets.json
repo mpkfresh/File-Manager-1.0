@@ -1,0 +1,51 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-release",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build/windows-release",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.2/msvc2022_64",
+        "FILE_MANAGER_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "windows-release-reviewed",
+      "inherits": "windows-release",
+      "generator": "Visual Studio 17 2022",
+      "description": "1.0 release build from an explicitly selected Qt kit",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{FILE_MANAGER_QT_PREFIX}",
+        "rhs": ""
+      },
+      "binaryDir": "${sourceDir}/out/build/windows-release-reviewed",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{FILE_MANAGER_QT_PREFIX}",
+        "FILE_MANAGER_BUILD_VERSION": "1.0.0",
+        "FILE_MANAGER_RELEASE_CHANNEL": "",
+        "FILE_MANAGER_PUBLISHER": "Kiatami"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-release", "configurePreset": "windows-release", "configuration": "Release" },
+    { "name": "windows-release-reviewed", "configurePreset": "windows-release-reviewed", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-release-reviewed",
+      "configurePreset": "windows-release-reviewed",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
