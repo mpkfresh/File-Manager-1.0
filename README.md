@@ -1,15 +1,10 @@
 # File Manager
 
-**Public development source; no 1.0 release yet.** File Manager is a Windows
-file manager written in C++20 and Qt 6. The last broadly verified
-development build is `0.9.5-rc.7`; later source and affected checks do not
-establish a supported 1.0 release.
-The October 24 development build passed affected Preferences and Visual
-checks plus a synthetic Cloud Files offline-refusal check. Its app SHA-256 is
-`5F262A3012F22C51BFF6580517B8CC24414E3DB138661EACD5CC15F4AD0085AD`.
-The last broad Windows native and installed-package checks used older app
-bytes. The current build has no final native, matching-package, installed or
-real-provider acceptance, so it does not establish a 1.0 result.
+**File Manager 1.0 is in development; no verified 1.0 binary has been
+released.** It is a Windows file manager written in C++20 and Qt 6. The
+source defaults to the proposed 1.0.0/Kiatami identity. Final source,
+package, Windows and provider checks remain open. See the
+[current status](docs/STATUS.md) for verification progress.
 
 It provides tabs, split panels, local and direct UNC browsing, file operations
 with preview and supported session Undo, on-demand search, previews, favorites,
@@ -18,18 +13,6 @@ they do not generate destination folders or moves. Opening supported folders
 or Win+E with File Manager is separately optional and off by default. Windows
 continues to provide file associations, property sheets and Recycle Bin
 operations.
-
-## Moving from 0.x to 1.0
-
-The proposed 1.0 installer uses a new Kiatami identity. If a 0.x MSI is
-installed, uninstall it through Windows Settings before installing 1.0; the
-1.0 installer is designed to stop and explain this if the old MSI remains.
-For a 0.x portable copy, turn off its optional Windows folder and Win+E
-integrations before retiring that copy; there is no MSI for 1.0 to detect.
-File Manager 1.0 starts with fresh settings and file labels. It does not
-import or delete the old per-user data. If you want to clear old data, use
-the old version's Preferences controls before uninstalling it. This behavior
-is still awaiting the final installed-package checks.
 
 ## Build from source
 
@@ -62,15 +45,9 @@ synthetic files and uses temporary Windows integration fixtures. The
 the command above omits those duplicate entry points while retaining the
 full targets and the separate DPI checks.
 
-The checked-in source now defaults to `1.0.0` with an empty release channel;
-an affected development build passed five executable identity checks, full
-Core and Visual invariants. Final release verification remains open. A
-development build labeled
-`0.9.5-rc.7` uses a separate build directory and the CMake cache values
-`FILE_MANAGER_BUILD_VERSION=0.9.5` and
-`FILE_MANAGER_RELEASE_CHANNEL=rc.7`. A fresh build has new bytes: older local
-test or package results cannot verify it. The preset outputs to
-`out/build/windows-release/Release`.
+The checked-in source defaults to `1.0.0` with an empty release channel.
+The preset outputs to `out/build/windows-release/Release`. Each build needs
+verification on its exact binaries before it can be treated as a release.
 
 A separate `windows-release-reviewed` preset selects Visual Studio 2022,
 requires an explicit `FILE_MANAGER_QT_PREFIX` for the matching MSVC 2022 Qt
@@ -79,10 +56,8 @@ build. A local preflight matched 28 selected files from the official Qt
 6.11.2 component archives to the installed kit; the seven replacement media
 files, compiler inputs and final source/build gate remain open.
 
-Before this README can describe a verified 1.0 release, V1 must build these
-defaults from the reviewed source commit and inspect all executable and
-package identities. An affected local development build and its approved
-no-rebuild continuation do not replace the final reviewed-source V1 build.
+The reviewed-source build, executable identities and matching package remain
+part of 1.0 verification.
 
 ## Privacy and security
 
