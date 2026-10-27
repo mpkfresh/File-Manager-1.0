@@ -82,6 +82,42 @@ function Assert-Hash([string]$Path, [string]$Expected) {
     }
 }
 
+function Write-QtBuildDiagnosticSummary([string]$Stdout, [string]$Stderr) {
+    # GitHub logs are public. Emit only compiler codes and short messages,
+    # without source paths, URLs, email addresses or credential-like text.
+    $combined = $Stdout + "`n" + $Stderr
+    $diagnostics = [regex]::Matches($combined,
+        '(?im)\b(?:fatal )?error\s+(?<code>(?:C|D|LNK|MSB)\d{4,5}):\s*(?<detail>[^\r\n]{0,300})')
+    $seen = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal)
+    $emitted = 0
+    foreach ($match in $diagnostics) {
+        $code = $match.Groups['code'].Value.ToUpperInvariant()
+        $detail = $match.Groups['detail'].Value
+        $detail = [regex]::Replace($detail, '(?i)https?://\S+', '<url>')
+        $detail = [regex]::Replace($detail,
+            '(?i)\b[A-Z]:[\\/][^''"]+', '<path>')
+        $detail = [regex]::Replace($detail,
+            '(?i)(?:\\\\|//)[^''"]+', '<path>')
+        $detail = [regex]::Replace($detail,
+            '(?i)\b[\w.+-]+@[\w.-]+\.[A-Z]{2,}\b', '<email>')
+        if ($detail -match '(?i)(token|password|secret|bearer|authorization|api.?key)') {
+            $detail = '<redacted>'
+        }
+        $detail = [regex]::Replace($detail, '[^\x20-\x7E]', '?').Trim()
+        if ($detail.Length -gt 180) { $detail = $detail.Substring(0, 180) }
+        $summary = "${code}: $detail"
+        if ($seen.Add($summary)) {
+            Write-Output "Qt compiler diagnostic: $summary"
+            $emitted++
+            if ($emitted -ge 12) { break }
+        }
+    }
+    if ($emitted -eq 0) {
+        Write-Output 'Qt build failed without a recognized MSVC diagnostic code; raw logs remain runner-local.'
+    }
+}
+
 function Invoke-Bounded([string]$Phase, [string]$FilePath,
         [string[]]$Arguments, [int]$Seconds) {
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -99,12 +135,17 @@ function Invoke-Bounded([string]$Phase, [string]$FilePath,
         $stderrTask = $process.StandardError.ReadToEndAsync()
         $completed = $process.WaitForExit($Seconds * 1000)
         if (-not $completed) { $process.Kill($true); $process.WaitForExit() }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
         [IO.File]::WriteAllText((Join-Path $root "logs/$Phase.stdout.log"),
-            $stdoutTask.GetAwaiter().GetResult())
+            $stdout)
         [IO.File]::WriteAllText((Join-Path $root "logs/$Phase.stderr.log"),
-            $stderrTask.GetAwaiter().GetResult())
+            $stderr)
         if (-not $completed) { throw "$Phase exceeded $Seconds seconds." }
         if ($process.ExitCode -ne 0) {
+            if ($Phase -ceq 'qt-build') {
+                Write-QtBuildDiagnosticSummary $stdout $stderr
+            }
             throw "$Phase exited $($process.ExitCode); inspect local logs."
         }
     } finally {
