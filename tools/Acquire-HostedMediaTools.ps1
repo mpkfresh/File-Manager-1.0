@@ -187,8 +187,10 @@ $configs = @(Get-ChildItem -LiteralPath $shaders -Recurse -File `
     -Filter 'Qt6ShaderToolsConfig.cmake')
 if ($configs.Count -ne 1) { throw 'Expected one Qt ShaderTools prefix.' }
 $shaderPrefix = $configs[0].Directory.Parent.Parent.Parent.FullName
-if (-not $shaderPrefix.StartsWith($shaders + '\',
-        [StringComparison]::OrdinalIgnoreCase)) {
+if (-not ($shaderPrefix.Equals($shaders,
+            [StringComparison]::OrdinalIgnoreCase) -or
+        $shaderPrefix.StartsWith($shaders + '\',
+            [StringComparison]::OrdinalIgnoreCase))) {
     throw 'ShaderTools prefix escaped the isolated tool directory.'
 }
 foreach ($entry in $expectedShaderFiles.GetEnumerator()) {
