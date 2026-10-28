@@ -359,7 +359,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & ctest --test-dir out/build/windows-release-reviewed -C Release `
-            --timeout 180 -R '^FileManagerDependencyTests$'
+            --timeout 180 --output-on-failure -R '^FileManagerDependencyTests$'
           if ($LASTEXITCODE) { throw 'Base Qt deployment check failed.' }
           Write-Output 'Base deployment passed; the final seven-file payload remains a separate gate.'
 
