@@ -15,9 +15,36 @@ function Assert-FileManagerOrdinaryPath {
     }
 }
 
+function Get-FileManagerInstallerIdentity {
+    [CmdletBinding()]
+    param([switch]$ReviewOnlyPrerelease)
+    if ($ReviewOnlyPrerelease) {
+        return [pscustomobject]@{
+            Name = 'File Manager (Unsigned Preview)'
+            InstallFolder = 'File Manager Unsigned Preview'
+            RegistryKey = 'Software\Kiatami\FileManager\UnsignedPreview\Installer'
+            UpgradeCode = 'F256047E-0C93-4C66-9327-281F55AF03AF'
+            OtherChannelUpgradeCode = '5429857B-08FB-4F84-B33F-25C1B23692CA'
+            StartMenuComponentGuid = '00DD39E0-AC2F-4EBD-94AC-033FAECD38C6'
+            ComponentSeedPrefix = 'unsigned-preview:'
+        }
+    }
+    # Preserve these IDs across later Kiatami upgrades.
+    return [pscustomobject]@{
+        Name = 'File Manager'
+        InstallFolder = 'File Manager'
+        RegistryKey = 'Software\Kiatami\FileManager\Installer'
+        UpgradeCode = '5429857B-08FB-4F84-B33F-25C1B23692CA'
+        OtherChannelUpgradeCode = 'F256047E-0C93-4C66-9327-281F55AF03AF'
+        StartMenuComponentGuid = '71E7BB8E-42C7-4701-8CD5-1F9361F98687'
+        ComponentSeedPrefix = ''
+    }
+}
+
 function Get-FileManagerInstallerRegistryKey {
-    # 1.0 installer ownership ID. Preserve across later Kiatami upgrades.
-    'Software\Kiatami\FileManager\Installer'
+    [CmdletBinding()]
+    param([switch]$ReviewOnlyPrerelease)
+    (Get-FileManagerInstallerIdentity -ReviewOnlyPrerelease:$ReviewOnlyPrerelease).RegistryKey
 }
 
 function Get-FileManagerVersionContract {

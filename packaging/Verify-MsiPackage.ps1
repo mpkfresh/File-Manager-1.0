@@ -6,6 +6,7 @@ param(
     [string]$ExpectedVersion = '0.8.7.6',
     [string]$ExpectedProductName = 'File Manager',
     [string]$ExpectedManufacturer = 'Kiatami',
+    [switch]$ReviewOnlyPrerelease,
     [switch]$AcceptWixEula,
     [switch]$RequireSignature,
     [ValidatePattern('^[A-Fa-f0-9]{40}$')]
@@ -16,6 +17,13 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ReleaseSignatures.ps1')
 . (Join-Path $PSScriptRoot 'PayloadInventory.ps1')
 $versionContract = Get-FileManagerVersionContract $ExpectedVersion
+$installerIdentity = Get-FileManagerInstallerIdentity -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
+if ($ReviewOnlyPrerelease -and $ExpectedVersion -cne '1.0.0') {
+    throw 'Unsigned preview MSI verification requires version 1.0.0.'
+}
+if ($ReviewOnlyPrerelease -and ($RequireSignature -or $ExpectedSignerThumbprint)) {
+    throw 'Unsigned preview MSI verification cannot request a signing certificate.'
+}
 $packagePath = (Resolve-Path -LiteralPath $Package).Path
 $installer = New-Object -ComObject WindowsInstaller.Installer
 $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null,
@@ -52,15 +60,30 @@ $properties = @{}
 foreach ($row in Read-MsiRows 'SELECT `Property`,`Value` FROM `Property`') {
     $properties[$row[0]] = $row[1]
 }
-if ($properties.ProductName -ne $ExpectedProductName -or
+if ($ExpectedProductName -cne 'File Manager' -or
+        $properties.ProductName -cne $installerIdentity.Name -or
         $properties.ProductVersion -ne $versionContract.MsiVersion -or
         $properties.Manufacturer -ne $ExpectedManufacturer) {
     throw 'MSI product identity does not match the requested package identity.'
 }
-$newUpgradeCode = '5429857B-08FB-4F84-B33F-25C1B23692CA'
 $previousUpgradeCode = '9E0D655D-A984-4D6E-B3A7-76BF9CB47F41'
-if (([string]$properties.UpgradeCode -replace '[{}]', '') -ine $newUpgradeCode) {
-    throw 'MSI must use the Kiatami 1.0 upgrade family.'
+if (([string]$properties.UpgradeCode -replace '[{}]', '') -ine $installerIdentity.UpgradeCode) {
+    throw 'MSI has the wrong installer upgrade family.'
+}
+$otherChannelProperty = 'FM_OTHER_CHANNEL_PRESENT'
+$otherChannelRows = @(Read-MsiRows 'SELECT `UpgradeCode`,`VersionMin`,`VersionMax`,`Attributes`,`ActionProperty` FROM `Upgrade`' |
+    Where-Object { $_[4] -ceq $otherChannelProperty })
+if ($otherChannelRows.Count -ne 1 -or
+        ($otherChannelRows[0][0] -replace '[{}]', '') -ine $installerIdentity.OtherChannelUpgradeCode -or
+        $otherChannelRows[0][1] -ne '0.0.0' -or $otherChannelRows[0][2] -ne '' -or
+        (([int]$otherChannelRows[0][3]) -band 0x002) -eq 0 -or
+        $otherChannelProperty -cnotin @($properties.SecureCustomProperties -split ';')) {
+    throw 'MSI must detect the other 1.0 installer family without removing it.'
+}
+$otherChannelGuards = @(Read-MsiRows 'SELECT `Condition` FROM `LaunchCondition`' |
+    Where-Object { $_[0] -ceq 'Installed OR NOT FM_OTHER_CHANNEL_PRESENT' })
+if ($otherChannelGuards.Count -ne 1) {
+    throw 'MSI must refuse coexistence with the other 1.0 installer family.'
 }
 $oldSeriesProperty = 'FM_PRE_1_0_PRESENT'
 $legacyRows = @(Read-MsiRows 'SELECT `UpgradeCode`,`VersionMin`,`VersionMax`,`Attributes`,`ActionProperty` FROM `Upgrade`' |
@@ -125,7 +148,7 @@ foreach ($name in $applicationNames) {
 }
 
 $registryRows = @(Read-MsiRows 'SELECT `Registry`,`Root`,`Component_`,`Key` FROM `Registry`')
-$installerRegistryKey = Get-FileManagerInstallerRegistryKey
+$installerRegistryKey = $installerIdentity.RegistryKey
 $locationSearches = @(Read-MsiRows 'SELECT `Property`,`Signature_` FROM `AppSearch`')
 foreach ($property in @('INSTALLFOLDER', 'FM_EXISTING_INSTALLFOLDER')) {
     $matches = @($locationSearches | Where-Object { $_[0] -ceq $property })
@@ -173,6 +196,31 @@ if ($installMarkers.Count -ne 1 -or $installMarkers[0][2] -cne '[INSTALLFOLDER]'
 }
 foreach ($row in $registryRows) { $registryById[$row[0]] = $row }
 $components = @(Read-MsiRows 'SELECT `Component`,`Directory_`,`KeyPath` FROM `Component`')
+$startMenuComponent = @(Read-MsiRows 'SELECT `Component`,`ComponentId` FROM `Component`' |
+    Where-Object { $_[0] -ceq 'StartMenuShortcut' })
+if ($startMenuComponent.Count -ne 1 -or
+        ($startMenuComponent[0][1] -replace '[{}]', '') -ine $installerIdentity.StartMenuComponentGuid) {
+    throw 'MSI Start menu component does not match its installer family.'
+}
+$mainFileRows = @($files | Where-Object { ($_[0] -split '\|')[-1] -ceq 'FileManager.exe' })
+$componentGuids = @{}
+foreach ($row in Read-MsiRows 'SELECT `Component`,`ComponentId` FROM `Component`') {
+    $componentGuids[$row[0]] = $row[1] -replace '[{}]', ''
+}
+if ($mainFileRows.Count -ne 1 -or -not $componentGuids.ContainsKey($mainFileRows[0][3])) {
+    throw 'MSI main executable component is missing.'
+}
+$mainSeed = $installerIdentity.ComponentSeedPrefix + 'file:FileManager.exe'
+$mainHash = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(
+    $mainSeed.ToLowerInvariant()))
+$mainGuidBytes = [byte[]]::new(16)
+[Array]::Copy($mainHash, $mainGuidBytes, 16)
+$mainGuidBytes[6] = ($mainGuidBytes[6] -band 0x0f) -bor 0x50
+$mainGuidBytes[8] = ($mainGuidBytes[8] -band 0x3f) -bor 0x80
+$expectedMainGuid = ([Guid]::new($mainGuidBytes)).ToString().ToUpperInvariant()
+if ($componentGuids[$mainFileRows[0][3]] -ine $expectedMainGuid) {
+    throw 'MSI executable component does not belong to its installer family.'
+}
 foreach ($row in $components) {
     if (-not $registryById.ContainsKey($row[2]) -or [int]$registryById[$row[2]][1] -ne 1) {
         throw "Component $($row[0]) does not use an HKCU registry key path."
@@ -180,6 +228,16 @@ foreach ($row in $components) {
 }
 
 $directoryRows = @(Read-MsiRows 'SELECT `Directory`,`Directory_Parent`,`DefaultDir` FROM `Directory`')
+$installFolderRows = @($directoryRows | Where-Object { $_[0] -ceq 'INSTALLFOLDER' })
+if ($installFolderRows.Count -ne 1 -or
+        (($installFolderRows[0][2] -split ':')[0] -split '\|')[-1] -cne $installerIdentity.InstallFolder) {
+    throw 'MSI installation folder does not match its installer family.'
+}
+$menuFolderRows = @($directoryRows | Where-Object { $_[0] -ceq 'ApplicationProgramsFolder' })
+if ($menuFolderRows.Count -ne 1 -or
+        (($menuFolderRows[0][2] -split ':')[0] -split '\|')[-1] -cne $installerIdentity.Name) {
+    throw 'MSI Start menu folder does not match its installer family.'
+}
 $payloadDirectories = @{ INSTALLFOLDER = '' }
 do {
     $before = $payloadDirectories.Count
@@ -252,7 +310,8 @@ if ($cleanupSequence.Count -ne 1 -or $removeFilesSequence.Count -ne 1 `
     throw 'The MSI preview cleanup action is not restricted to full uninstall before RemoveFiles.'
 }
 $shortcuts = @(Read-MsiRows 'SELECT `Name`,`Target` FROM `Shortcut`')
-if ($shortcuts.Count -ne 1 -or $shortcuts[0][1] -ne '[INSTALLFOLDER]FileManager.exe') {
+if ($shortcuts.Count -ne 1 -or $shortcuts[0][1] -ne '[INSTALLFOLDER]FileManager.exe' -or
+        ($shortcuts[0][0] -split '\|')[-1] -cne $installerIdentity.Name) {
     throw 'The MSI Start menu shortcut contract is invalid.'
 }
 
@@ -264,6 +323,9 @@ if ($AcceptWixEula) {
 }
 
 $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
+if ($ReviewOnlyPrerelease -and $signature.Status -ne 'NotSigned') {
+    throw 'Unsigned preview MSI must remain unsigned.'
+}
 if ($RequireSignature -or $ExpectedSignerThumbprint) {
     Assert-ReleaseFileSignature -Path $packagePath `
         -ExpectedSignerThumbprint $ExpectedSignerThumbprint | Out-Null

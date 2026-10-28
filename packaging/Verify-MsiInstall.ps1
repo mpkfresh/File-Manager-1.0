@@ -6,6 +6,7 @@ param(
     [string]$ExpectedVersion = '0.8.7.6',
     [string]$ProductName = 'File Manager',
     [string]$Manufacturer = 'Kiatami',
+    [switch]$ReviewOnlyPrerelease,
     [ValidatePattern('^[A-Fa-f0-9]{64}$')]
     [string]$ExpectedPackageSha256,
     [ValidatePattern('^[A-Fa-f0-9]{64}$')]
@@ -22,6 +23,13 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'PackageIdentity.ps1')
 . (Join-Path $PSScriptRoot 'PayloadInventory.ps1')
 $versionContract = Get-FileManagerVersionContract $ExpectedVersion
+$installerIdentity = Get-FileManagerInstallerIdentity -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
+$otherInstallerIdentity = Get-FileManagerInstallerIdentity `
+    -ReviewOnlyPrerelease:(-not $ReviewOnlyPrerelease)
+if ($ProductName -cne 'File Manager' -or
+        ($ReviewOnlyPrerelease -and $ExpectedVersion -cne '1.0.0')) {
+    throw 'The selected installer mode requires the File Manager 1.0 application identity.'
+}
 
 if ($ExpectedManifestSha256 -and -not $ExpectedPayloadManifest) {
     throw 'A manifest SHA-256 requires an expected payload manifest.'
@@ -29,7 +37,7 @@ if ($ExpectedManifestSha256 -and -not $ExpectedPayloadManifest) {
 if ([Version]$ExpectedVersion -ge [Version]'1.0.0' -and
         (-not $ExpectedPayloadManifest -or -not $ExpectedManifestSha256 -or
         -not $ExpectedPackageSha256 -or -not $ExpectedAppSha256 -or
-        -not $ExpectedMsiSignerThumbprint)) {
+        (-not $ReviewOnlyPrerelease -and -not $ExpectedMsiSignerThumbprint))) {
     throw 'A 1.0-or-newer MSI install check requires pinned MSI, app and payload manifest hashes plus the MSI signer thumbprint.'
 }
 
@@ -93,12 +101,12 @@ $logDirectory = Join-Path $workspaceRoot (Join-Path 'out\package-validation\logs
 [IO.Directory]::CreateDirectory($logDirectory) | Out-Null
 $installLog = Join-Path $logDirectory 'msi-install.log'
 $uninstallLog = Join-Path $logDirectory 'msi-uninstall.log'
-$defaultInstallPath = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
-$customInstallPath = Join-Path $env:LOCALAPPDATA "Programs\$ProductName Acceptance"
+$defaultInstallPath = Join-Path $env:LOCALAPPDATA "Programs\$($installerIdentity.InstallFolder)"
+$customInstallPath = Join-Path $env:LOCALAPPDATA "Programs\$($installerIdentity.InstallFolder) Acceptance"
 $installPath = if ($UseCustomInstallFolder) { $customInstallPath } else { $defaultInstallPath }
-$shortcutDirectory = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$ProductName"
-$shortcutPath = Join-Path $shortcutDirectory "$ProductName.lnk"
-$installerRegistryPath = 'HKCU:\' + (Get-FileManagerInstallerRegistryKey)
+$shortcutDirectory = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$($installerIdentity.Name)"
+$shortcutPath = Join-Path $shortcutDirectory "$($installerIdentity.Name).lnk"
+$installerRegistryPath = 'HKCU:\' + $installerIdentity.RegistryKey
 $previewRuntimePath = Join-Path $env:LOCALAPPDATA "$Manufacturer\$ProductName\PreviewRuntime"
 $previewFixture = Join-Path $logDirectory 'msi-preview-sandbox-probe.txt'
 
@@ -106,12 +114,15 @@ $existingProducts = @(Get-ChildItem -LiteralPath 'HKCU:\Software\Microsoft\Windo
         -ErrorAction SilentlyContinue |
     ForEach-Object {
         $properties = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
-        if ($properties.DisplayName -eq $ProductName) { $properties }
+        if ($properties.DisplayName -in @($installerIdentity.Name, $otherInstallerIdentity.Name)) {
+            $properties
+        }
     })
 if ($existingProducts.Count -ne 0 -or (Test-Path -LiteralPath $defaultInstallPath) `
         -or (Test-Path -LiteralPath $customInstallPath) `
         -or (Test-Path -LiteralPath $shortcutDirectory) `
         -or (Test-Path -LiteralPath $installerRegistryPath) `
+        -or (Test-Path -LiteralPath ('HKCU:\' + $otherInstallerIdentity.RegistryKey)) `
         -or (Test-Path -LiteralPath $previewRuntimePath)) {
     throw "Refusing to replace an existing $ProductName installation or installer-owned state."
 }
@@ -259,7 +270,7 @@ $residue = [ordered]@{
 }
 $residue['ProductRegistration'] = @(Get-ChildItem -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
     ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue } |
-    Where-Object { $_.DisplayName -eq $ProductName }).Count -ne 0
+    Where-Object { $_.DisplayName -eq $installerIdentity.Name }).Count -ne 0
 $remaining = @($residue.GetEnumerator() | Where-Object Value | ForEach-Object Key)
 $result = [ordered]@{
     Package = $packagePath

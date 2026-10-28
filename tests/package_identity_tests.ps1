@@ -51,6 +51,21 @@ foreach ($publisher in @('Kiatami', 'Example & Company')) {
         throw 'Kiatami releases must retain the 1.0 installer ownership key.'
     }
 }
+$finalInstaller = Get-FileManagerInstallerIdentity
+$previewInstaller = Get-FileManagerInstallerIdentity -ReviewOnlyPrerelease
+if ($finalInstaller.Name -cne 'File Manager' -or
+        $previewInstaller.Name -cne 'File Manager (Unsigned Preview)' -or
+        $finalInstaller.InstallFolder -ceq $previewInstaller.InstallFolder -or
+        $finalInstaller.RegistryKey -ceq $previewInstaller.RegistryKey -or
+        $finalInstaller.UpgradeCode -ceq $previewInstaller.UpgradeCode -or
+        $finalInstaller.StartMenuComponentGuid -ceq $previewInstaller.StartMenuComponentGuid -or
+        $finalInstaller.OtherChannelUpgradeCode -cne $previewInstaller.UpgradeCode -or
+        $previewInstaller.OtherChannelUpgradeCode -cne $finalInstaller.UpgradeCode -or
+        $finalInstaller.ComponentSeedPrefix -cne '' -or
+        $previewInstaller.ComponentSeedPrefix -cne 'unsigned-preview:' -or
+        (Get-FileManagerInstallerRegistryKey -ReviewOnlyPrerelease) -cne $previewInstaller.RegistryKey) {
+    throw 'Unsigned preview and final installers must have distinct, reciprocal ownership identities.'
+}
 foreach ($name in $expectedNames) {
     $script:missingFile = $name
     Expect-Rejection { Assert-FileManagerPayloadIdentity $payload } '*Missing fixture*'

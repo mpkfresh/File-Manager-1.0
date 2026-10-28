@@ -69,7 +69,9 @@ function ConvertTo-WixXml([string]$Value) {
     return [Security.SecurityElement]::Escape($Value)
 }
 
-function Get-StableIdentity([string]$Seed) {
+function Get-StableIdentity([string]$Seed, [switch]$ReviewOnlyPrerelease) {
+    $Seed = (Get-FileManagerInstallerIdentity `
+        -ReviewOnlyPrerelease:$ReviewOnlyPrerelease).ComponentSeedPrefix + $Seed
     $bytes = [Text.Encoding]::UTF8.GetBytes($Seed.ToLowerInvariant())
     $hash = [Security.Cryptography.SHA256]::HashData($bytes)
     $guidBytes = [byte[]]::new(16)
@@ -82,8 +84,10 @@ function Get-StableIdentity([string]$Seed) {
     }
 }
 
-function New-WixPayloadFragment([string]$PayloadRoot, [string]$Destination) {
-    $installerRegistryKey = ConvertTo-WixXml (Get-FileManagerInstallerRegistryKey)
+function New-WixPayloadFragment([string]$PayloadRoot, [string]$Destination,
+        [switch]$ReviewOnlyPrerelease) {
+    $installerRegistryKey = ConvertTo-WixXml (Get-FileManagerInstallerRegistryKey `
+        -ReviewOnlyPrerelease:$ReviewOnlyPrerelease)
     $builder = [Text.StringBuilder]::new()
     $componentIds = [Collections.Generic.List[string]]::new()
     [void]$builder.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
@@ -94,7 +98,8 @@ function New-WixPayloadFragment([string]$PayloadRoot, [string]$Destination) {
             [string]$DirectoryId, [int]$Depth) {
         $indent = ' ' * (6 + ($Depth * 2))
         if ($Depth -gt 0) {
-            $directoryIdentity = Get-StableIdentity "directory:$Relative"
+            $directoryIdentity = Get-StableIdentity "directory:$Relative" `
+                -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
             $DirectoryId = "Dir_$($directoryIdentity.Id)"
             $escapedName = ConvertTo-WixXml $Directory.Name
             [void]$builder.AppendLine("$indent<Directory Id=`"$DirectoryId`" Name=`"$escapedName`">")
@@ -103,7 +108,8 @@ function New-WixPayloadFragment([string]$PayloadRoot, [string]$Destination) {
 
         foreach ($file in Get-ChildItem -LiteralPath $Directory.FullName -File -Force | Sort-Object Name) {
             $fileRelative = if ($Relative) { "$Relative/$($file.Name)" } else { $file.Name }
-            $identity = Get-StableIdentity "file:$fileRelative"
+            $identity = Get-StableIdentity "file:$fileRelative" `
+                -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
             $componentId = "CmpF_$($identity.Id)"
             $componentIds.Add($componentId)
             $source = ConvertTo-WixXml $file.FullName
@@ -120,7 +126,7 @@ function New-WixPayloadFragment([string]$PayloadRoot, [string]$Destination) {
         }
 
         $cleanupSeed = if ($Relative) { "cleanup:$Relative" } else { 'cleanup:root' }
-        $cleanup = Get-StableIdentity $cleanupSeed
+        $cleanup = Get-StableIdentity $cleanupSeed -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
         $cleanupComponent = "CmpD_$($cleanup.Id)"
         $componentIds.Add($cleanupComponent)
         [void]$builder.AppendLine("$indent<Component Id=`"$cleanupComponent`" Guid=`"$($cleanup.Guid)`">")
@@ -243,6 +249,7 @@ $ProductVersion = $compiledIdentity.Version
 $versionContract = Get-FileManagerVersionContract $ProductVersion
 $ProductName = $compiledIdentity.ProductName
 $Manufacturer = $compiledIdentity.Manufacturer
+$installerIdentity = Get-FileManagerInstallerIdentity -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
 if ($ReviewOnlyPrerelease -and $ProductVersion -cne '1.0.0') {
     throw 'Review-only prerelease mode is limited to version 1.0.0.'
 }
@@ -465,7 +472,7 @@ if (-not $SkipMsi) {
     if ($protectedRelease -and (Test-Path -LiteralPath $payloadWxs)) {
         throw "Signed packaging requires a fresh output path: $payloadWxs"
     }
-    New-WixPayloadFragment $stage $payloadWxs
+    New-WixPayloadFragment $stage $payloadWxs -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
     if ($protectedRelease) {
         if (Test-Path -LiteralPath $msi) { throw "Signed packaging requires a fresh output path: $msi" }
     } else {
@@ -480,11 +487,14 @@ if (-not $SkipMsi) {
         $payloadWxs,
         '-arch', 'x64',
         '-b', "Payload=$stage",
-        '-d', "ProductName=$ProductName",
+        '-d', "ProductName=$($installerIdentity.Name)",
         '-d', "ProductVersion=$($versionContract.MsiVersion)",
         '-d', "Manufacturer=$Manufacturer",
-        '-d', "InstallFolderName=$ProductName",
-        '-d', "InstallerRegistryKey=$(Get-FileManagerInstallerRegistryKey)",
+        '-d', "InstallFolderName=$($installerIdentity.InstallFolder)",
+        '-d', "InstallerRegistryKey=$($installerIdentity.RegistryKey)",
+        '-d', "InstallerUpgradeCode=$($installerIdentity.UpgradeCode)",
+        '-d', "OtherChannelUpgradeCode=$($installerIdentity.OtherChannelUpgradeCode)",
+        '-d', "InstallerStartMenuGuid=$($installerIdentity.StartMenuComponentGuid)",
         '-d', "BrandingIcon=$(Join-Path $workspace 'resources\branding\app-icon.ico')",
         '-o', $msi)
     & dotnet @wixArguments
@@ -511,6 +521,7 @@ if ($ReviewOnlyPrerelease) {
         'FILE MANAGER 1.0.0 — UNSIGNED REVIEW ONLY'
         'These MSI and portable files are unsigned prerelease review candidates.'
         'They are not the signed 1.0 release and have not been approved for publication.'
+        'The preview MSI has its own install folder and must be uninstalled before the final MSI.'
         'Verify the exact SHA-256 hashes and review the contained files before any use.'
     ) -join "`r`n"
     [IO.File]::WriteAllText($reviewNotice, $warning + "`r`n",
