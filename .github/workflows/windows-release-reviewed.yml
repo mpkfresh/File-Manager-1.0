@@ -1,9 +1,9 @@
 name: Reviewed Windows release build
 
 # Dispatch only after the owner approves the exact reviewed source commit and
-# the local source-manifest-to-commit guard has passed. This workflow neither
-# signs nor uploads a release artifact. Its media outputs remain unapproved
-# until the owner reviews exact hosted bytes and the V1-to-V2 handoff.
+# the local source-manifest-to-commit guard has passed. This workflow never
+# signs or creates a release. Its optional unsigned-review upload is bounded
+# to three checked files; media outputs remain unapproved for the final 1.0.
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       review_unsigned_package:
-        description: Build and verify a local-only unsigned V2 preview package
+        description: Build and upload the bounded unsigned V2 review package
         required: true
         default: false
         type: boolean
@@ -661,9 +661,9 @@ jobs:
           $record | ConvertTo-Json -Depth 6 |
             Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP `
               'filemanager-v1-handoff-candidate.json') -Encoding utf8NoBOM
-          Write-Output "Recorded $($present.Count) of 58 release paths in a local review-only manifest; no artifact uploaded."
+          Write-Output "Recorded $($present.Count) of 58 release paths in a local review-only manifest."
 
-      - name: Build and verify the local-only unsigned V2 preview package
+      - name: Build and verify the unsigned V2 preview package
         if: ${{ inputs.review_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -677,7 +677,24 @@ jobs:
             -AdditionalForbiddenCues @($env:RUNNER_TEMP)
           $result = $resultText | ConvertFrom-Json
           if ($result.status -cne 'local-review-only' -or $result.uploaded -ne $false -or
-              $result.sourceCommit -ine $env:GITHUB_SHA) {
-            throw 'The V2 package gate did not return a matching local-only result.'
+              $result.sourceCommit -ine $env:GITHUB_SHA -or
+              $result.artifactFileCount -ne 3 -or
+              $result.artifactTotalBytes -gt 134217728) {
+            throw 'The V2 package gate did not return a bounded review result.'
           }
-          Write-Output "Unsigned V2 review package passed locally: MSI $($result.msiSha256); portable $($result.portableSha256). No artifact uploaded."
+          Write-Output "Unsigned V2 review package passed locally: MSI $($result.msiSha256); portable $($result.portableSha256); notice $($result.noticeSha256); total bytes $($result.artifactTotalBytes)."
+
+      - name: Upload the three bounded unsigned review files for one day
+        if: ${{ inputs.review_unsigned_package }}
+        id: upload_unsigned_review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: file-manager-1.0-unsigned-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            out/v2-review-artifacts/FileManager-1.0.0-unsigned-review-windows-x64.msi
+            out/v2-review-artifacts/FileManager-1.0.0-unsigned-review-windows-x64-portable.zip
+            out/v2-review-artifacts/FileManager-1.0.0-unsigned-review-windows-x64-UNSIGNED-REVIEW-ONLY.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false

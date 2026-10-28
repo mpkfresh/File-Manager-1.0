@@ -133,6 +133,23 @@ $assets = @($msi, $zip, $notice)
 if (@($assets | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }).Count -ne 0) {
     throw 'A reviewed unsigned package asset is missing.'
 }
+$allowedNames = @($assets | ForEach-Object { [IO.Path]::GetFileName($_) })
+$artifactItems = @(Get-ChildItem -LiteralPath $artifact -Force -ErrorAction Stop)
+if ($artifactItems.Count -ne 3) {
+    throw 'The upload directory must contain exactly three review assets.'
+}
+$artifactTotalBytes = [long]0
+foreach ($item in $artifactItems) {
+    if ($item -isnot [IO.FileInfo] -or $item.Name -cnotin $allowedNames -or
+            ($item.Attributes -band ([IO.FileAttributes]::ReparsePoint -bor
+                [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System)) -ne 0) {
+        throw 'The upload directory contains an unapproved or unsafe item.'
+    }
+    $artifactTotalBytes = [Math]::Add($artifactTotalBytes, [long]$item.Length)
+}
+if ($artifactTotalBytes -gt 134217728) {
+    throw 'The three review assets exceed the approved 128 MiB upload ceiling.'
+}
 $privacyArgs = @((Join-Path $root 'tools\Check-ReleaseArtifactPrivacy.py'),
     '--payload-root', $stage, '--payload-manifest', $payloadManifest,
     '--manifest-sha256', $manifest.manifestSha256,
@@ -160,5 +177,7 @@ if ($LASTEXITCODE -ne 0) { throw 'The exact-artifact privacy gate did not pass.'
     msiSha256 = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash
     portableSha256 = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
     noticeSha256 = (Get-FileHash -LiteralPath $notice -Algorithm SHA256).Hash
+    artifactFileCount = $artifactItems.Count
+    artifactTotalBytes = $artifactTotalBytes
     uploaded = $false
 } | ConvertTo-Json -Depth 3
