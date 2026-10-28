@@ -40,7 +40,8 @@ set(FILE_MANAGER_ZLIB_NG_COMMIT 12731092979c6d07f42da27da673a9f6c7b13586)
 FetchContent_Declare(zlib_ng
     GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng.git
     GIT_TAG ${FILE_MANAGER_ZLIB_NG_COMMIT}
-    GIT_SHALLOW FALSE)
+    GIT_SHALLOW FALSE
+    GIT_CONFIG core.autocrlf=false)
 FetchContent_MakeAvailable(zlib_ng)
 get_target_property(FILE_MANAGER_ZLIB_TARGET zlibstatic ALIASED_TARGET)
 if(NOT FILE_MANAGER_ZLIB_TARGET)
@@ -77,7 +78,8 @@ set(FILE_MANAGER_MINIZIP_NG_COMMIT 7b2387161c542fa9f427352dcdef76097d0d692b)
 FetchContent_Declare(minizip_ng
     GIT_REPOSITORY https://github.com/zlib-ng/minizip-ng.git
     GIT_TAG ${FILE_MANAGER_MINIZIP_NG_COMMIT}
-    GIT_SHALLOW FALSE)
+    GIT_SHALLOW FALSE
+    GIT_CONFIG core.autocrlf=false)
 FetchContent_MakeAvailable(minizip_ng)
 if(NOT IS_DIRECTORY "${zlib_ng_SOURCE_DIR}"
         OR NOT IS_DIRECTORY "${minizip_ng_SOURCE_DIR}")

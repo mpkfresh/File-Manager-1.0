@@ -261,6 +261,13 @@ jobs:
           if ($LASTEXITCODE) { throw 'CMake is unavailable.' }
           & cmake --preset windows-release-reviewed
           if ($LASTEXITCODE) { throw 'Reviewed Release configure failed.' }
+          $sourceRecord = 'out/build/windows-release-reviewed/file-manager-dependency-sources.txt'
+          $sourceRecordHash = (Get-FileHash -LiteralPath $sourceRecord -Algorithm SHA256).Hash
+          $prebuildReport = Join-Path $env:RUNNER_TEMP 'filemanager-dependency-origins-prebuild.json'
+          & python tools/Verify-DependencySourceOrigins.py --record $sourceRecord `
+            --record-sha256 $sourceRecordHash --report $prebuildReport | Out-Null
+          if ($LASTEXITCODE) { throw 'Prebuild dependency source origins differ.' }
+          Write-Output 'Prebuild dependency origins matched pinned Git trees.'
           Get-Content 'out/build/windows-release-reviewed/CMakeCache.txt' |
             Select-String '^CMAKE_(VS_WINDOWS_TARGET_PLATFORM_VERSION|CXX_COMPILER|C_COMPILER):' |
             ForEach-Object { Write-Output $_.Line }

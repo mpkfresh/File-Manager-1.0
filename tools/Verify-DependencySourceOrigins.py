@@ -101,8 +101,16 @@ def source_inventory(repo: Path, commit: str) -> tuple[int, str, str]:
     head = git(repo, "rev-parse", "HEAD").decode("ascii", "strict").strip().lower()
     if head != commit:
         raise ValueError(f"Dependency HEAD differs from the pinned commit: {repo}")
-    if git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all"):
-        raise ValueError(f"Dependency source or index is dirty: {repo}")
+    checkout_eol = git(repo, "config", "--local", "--get", "core.autocrlf")
+    if checkout_eol.strip().lower() != b"false":
+        raise ValueError("Dependency checkout did not pin core.autocrlf=false")
+    initial_status = git(repo, "status", "--porcelain=v1", "-z",
+                         "--untracked-files=all")
+    if initial_status:
+        entries = [entry for entry in initial_status.split(b"\x00") if entry]
+        kinds = sorted({entry[:2].decode("ascii", "replace") for entry in entries})
+        raise ValueError("Dependency source or index is dirty: "
+                         f"entryCount={len(entries)}, statusKinds={kinds}")
     tree_id = git(repo, "rev-parse", "HEAD^{tree}").decode("ascii", "strict").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", tree_id):
         raise ValueError("Dependency Git tree has an invalid object ID")
