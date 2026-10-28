@@ -115,6 +115,7 @@ foreach ($name in $names) {
 $buildRecordHash = (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash
 $recipeHash = (Get-FileHash -LiteralPath (Join-Path $workspace `
     'tools\Build-ReviewedMediaFromCompanion.ps1') -Algorithm SHA256).Hash
+Assert-Pin ([string]$result.buildRecipeSha256) $recipeHash 'build recipe'
 $provenance = [ordered]@{
     schema = 'file-manager-media-provenance-v2'
     ffmpegVersion = '7.1.5'

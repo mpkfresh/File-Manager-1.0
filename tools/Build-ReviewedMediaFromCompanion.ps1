@@ -455,6 +455,7 @@ foreach ($relative in $mediaSources.Keys) {
 $result = [ordered]@{
     schema = 'file-manager-media-source-build-v1'
     status = 'built-unreviewed'
+    buildRecipeSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
     sourceCompanionSha256 = $checksumListHash
     ffmpegSourceSha256 = $archiveHashes['source/ffmpeg-n7.1.5.tar.gz']
     qtMultimediaSourceSha256 = $archiveHashes['source/qtmultimedia-everywhere-src-6.11.2.tar.xz']
