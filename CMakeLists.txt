@@ -668,7 +668,13 @@ if(WIN32)
     endif()
     set(FILE_MANAGER_WINDEPLOYQT_OPTIONS --no-translations --compiler-runtime
         --exclude-plugins qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql)
-    get_filename_component(FILE_MANAGER_QT_ROOT "${FILE_MANAGER_QT_PREFIX}/../.." ABSOLUTE)
+    # Keep the verbatim reviewed Qt license in source so relocated Qt kits
+    # deploy the same notice without depending on an installer's parent tree.
+    set(FILE_MANAGER_QT_LICENSE_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/licenses/Qt-LICENSE.txt")
+    if(NOT EXISTS "${FILE_MANAGER_QT_LICENSE_FILE}")
+        message(FATAL_ERROR "The reviewed Qt license notice is missing.")
+    endif()
     add_custom_command(TARGET FileManager POST_BUILD
         COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
             "$<TARGET_FILE:FileManager>"
@@ -691,7 +697,7 @@ if(WIN32)
             "${CMAKE_CURRENT_SOURCE_DIR}/SECURITY.md"
             "$<TARGET_FILE_DIR:FileManager>/SECURITY.md"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${FILE_MANAGER_QT_ROOT}/Licenses/LICENSE"
+            "${FILE_MANAGER_QT_LICENSE_FILE}"
             "$<TARGET_FILE_DIR:FileManager>/licenses/Qt-LICENSE.txt"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/resources/licenses/FFmpeg-LGPL-2.1.txt"
