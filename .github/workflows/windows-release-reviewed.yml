@@ -511,6 +511,9 @@ jobs:
             @{ name='FileManagerWorkspaceTests'; argument='--ffmpeg-video-only' }
           )) {
             $label = "$($case.name)-$($case.argument.TrimStart('-'))"
+            if ($case.argument -like '--ffmpeg-*') {
+              $env:QT_MEDIA_BACKEND = 'ffmpeg'
+            }
             $out = Join-Path $env:RUNNER_TEMP "$label.stdout.txt"
             $err = Join-Path $env:RUNNER_TEMP "$label.stderr.txt"
             $process = Start-Process -FilePath (Join-Path $bin "$($case.name).exe") `
@@ -522,6 +525,9 @@ jobs:
                 throw "$label exceeded 180 seconds."
               }
               if ($process.ExitCode -ne 0) {
+                $safeMediaStatus = @(Get-Content -LiteralPath $err |
+                  Where-Object { $_ -match '^FFmpeg candidate: success=[01] sandboxed=[01] job=[01] exit=-?[0-9]+ json=[0-9]+ plugin=[01] libraries=[01] durationMs=[0-9]+ outputBytes=[0-9]+ errorPresent=[01]$' })
+                if ($safeMediaStatus.Count -eq 1) { Write-Output $safeMediaStatus[0] }
                 throw "$label failed: $($process.ExitCode)"
               }
             } finally {
