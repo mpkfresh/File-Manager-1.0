@@ -154,14 +154,14 @@ jobs:
           Write-Output "Qt Mesa archive SHA-256 $mesaArchiveHash; DLL SHA-256 $mesaDllHash"
           Write-Output 'Qt kit is hash-pinned; final acceptance still requires V1 byte comparison and attribution.'
 
-      - name: Require pinned Windows SDK shader Redist bytes
+      - name: Require pinned hosted Windows SDK shader Redist bytes
         run: |
           $ErrorActionPreference = 'Stop'
           $sdk = 'C:\Program Files (x86)\Windows Kits\10\Redist\D3D\x64'
           $expected = @{
-            'd3dcompiler_47.dll' = 'E407B9FFADEF47E87994DC488214F75405CF04EE99589F2315FC7AB99FD1DFE2'
+            'd3dcompiler_47.dll' = 'A05F99734F7C4822FEFC12B367AF21FD0976ED6608752FB1E1E80B6ECE7ECBBB'
             'dxcompiler.dll' = '6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE'
-            'dxil.dll' = 'A0CFAF3E930894E9B5D48EFCACAED6ACE5C645BAD3C4E99B4A23C9831A078120'
+            'dxil.dll' = 'E69B838018A1E0025201EDBE9F166D061807CAB2F02221C18C53EA6F5E96F0B5'
           }
           $mismatch = $false
           foreach ($name in @('d3dcompiler_47.dll', 'dxcompiler.dll', 'dxil.dll')) {
@@ -176,7 +176,7 @@ jobs:
             Write-Output "$name Windows SDK Redist: $($item.Length) bytes; SHA-256 $actual"
             if ($actual -cne $expected[$name]) { $mismatch = $true }
           }
-          if ($mismatch) { throw 'Hosted Windows SDK shader bytes differ from the pinned 1.0 inputs.' }
+          if ($mismatch) { throw 'Hosted Windows SDK shader bytes differ from the pinned V1 inputs.' }
 
       - name: Prepare pinned build-only Vulkan SDK
         run: |
@@ -437,9 +437,9 @@ jobs:
             --selected-qt-prefix $env:FILE_MANAGER_QT_PREFIX `
             --deploy-tool $deploy --deploy-tool-sha256 $toolHash `
             --stage $bin --sdk-redist-root $sdk `
-            --d3dcompiler-sha256 E407B9FFADEF47E87994DC488214F75405CF04EE99589F2315FC7AB99FD1DFE2 `
+            --d3dcompiler-sha256 A05F99734F7C4822FEFC12B367AF21FD0976ED6608752FB1E1E80B6ECE7ECBBB `
             --dxcompiler-sha256 6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE `
-            --dxil-sha256 A0CFAF3E930894E9B5D48EFCACAED6ACE5C645BAD3C4E99B4A23C9831A078120 `
+            --dxil-sha256 E69B838018A1E0025201EDBE9F166D061807CAB2F02221C18C53EA6F5E96F0B5 `
             --report $report 2>&1
           if ($LASTEXITCODE -ne 0) {
             $safeDetails = @($output | ForEach-Object { [string]$_ } |
