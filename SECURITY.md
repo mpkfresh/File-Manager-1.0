@@ -22,12 +22,11 @@ the preview broker passes one read-only inherited source handle to a zero-capabi
 and applies kill-on-close, one-process and 768 MiB Job Object limits. There is no unsandboxed
 production fallback for those previews. The current working development build also sends image
 dimensions and PDF, RTF and Office document metadata through handle-only modes of that restricted
-helper; an approved affected Release build, selected-metadata Core check and full Workspace check
-passed on October 21. Folder previews count entries in the main process. Registered third-party
-Shell metadata and context handlers remain behind independent default-off permissions. The older
-R213/R214 broadly verified and packaged app still parses those metadata fields in the main app;
-the isolated implementation needs exact-byte final V1/V3 and installed-package acceptance before
-1.0.
+helper; affected development checks and the hosted V1 build passed on this
+source. Folder previews count entries in the main process. Registered
+third-party Shell metadata and context handlers remain behind independent
+default-off permissions. Exact-byte package, native and installed acceptance
+for the final 1.0 release remains open.
 
 File Manager has no automatic updater. Once a signed 1.0 release exists, security fixes will be
 distributed as complete reviewed packages from the official release page. Any separately approved

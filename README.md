@@ -1,10 +1,12 @@
 # File Manager
 
-**File Manager 1.0 is in development; no verified 1.0 binary has been
-released.** It is a Windows file manager written in C++20 and Qt 6. The
-source defaults to the proposed 1.0.0/Kiatami identity. Final source,
-package, Windows and provider checks remain open. See the
-[current status](docs/STATUS.md) for verification progress.
+**File Manager 1.0 is in release verification; no supported 1.0 binary has
+been published.** It is a Windows file manager written in C++20 and Qt 6.
+The source defaults to the proposed 1.0.0/Kiatami identity. The reviewed
+source passed a [hosted Windows build and affected tests](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/40676287316)
+without uploading binaries. Final package, signing, clean Windows and manual
+acceptance checks remain open. Locally prepared unsigned binaries are withheld
+from publication because they contain build paths.
 
 It provides tabs, split panels, local and direct UNC browsing, file operations
 with preview and supported session Undo, on-demand search, previews, favorites,
@@ -30,8 +32,8 @@ The first configure fetches the exact minizip-ng and zlib-ng revisions pinned
 in `CMakeLists.txt`. An offline build can supply these source trees through
 CMake's `FETCHCONTENT_SOURCE_DIR_*` variables. Those overrides must still
 match the pinned commits and file contents; the prepared release verifier
-reads CMake's consumed-source record for that purpose. It has not run on a
-final source commit.
+reads CMake's consumed-source record for that purpose. The hosted build checked
+those trees on its recorded commit; the final source commit remains open.
 
 ```powershell
 cmake --preset windows-release
@@ -51,10 +53,9 @@ verification on its exact binaries before it can be treated as a release.
 
 A separate `windows-release-reviewed` preset selects Visual Studio 2022,
 requires an explicit `FILE_MANAGER_QT_PREFIX` for the matching MSVC 2022 Qt
-kit, and sets proposed 1.0 identity. It has not completed a clean source
-build. A local preflight matched 28 selected files from the official Qt
-6.11.2 component archives to the installed kit; the seven replacement media
-files, compiler inputs and final source/build gate remain open.
+kit, and sets proposed 1.0 identity. The hosted V1 build passed on its reviewed
+source commit, including source-bound media and affected tests. Its temporary
+binaries were not uploaded; exact final package bytes still need verification.
 
 The reviewed-source build, executable identities and matching package remain
 part of 1.0 verification.
@@ -64,7 +65,7 @@ part of 1.0 verification.
 File Manager has no account, advertising, telemetry, analytics or automatic
 updater. Content search and network discovery run when requested. Persistent
 indexing, workspace restoration, Windows Shell handlers, folder routing and
-Win+E integration start off. Read the [privacy draft](PRIVACY.md) for local
+Win+E integration start off. Read the [privacy policy](PRIVACY.md) for local
 storage, permissions and clearing. The [security policy](SECURITY.md) explains
 reporting status and supported-release limits. Do not attach private data to
 public issues.
