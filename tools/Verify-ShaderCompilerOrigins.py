@@ -1,8 +1,10 @@
-"""Compare Qt's saved deployment-source list with staged shader DLL bytes.
+"""Compare pinned Windows SDK Redist, Qt-listed and staged shader DLL bytes.
 
 This is local release evidence, not a redistribution-rights decision. Capture
 `windeployqt --dry-run --list source` on a clean executable before using this
-tool. Run only inside an owner-approved release validation scope.
+tool. Qt can omit a compiler DLL or list a different copy. The Windows SDK
+Redist file must match the pinned hash and staged bytes; the Qt listing is
+recorded as diagnostic evidence. Run within release validation scope.
 """
 
 import argparse
@@ -48,13 +50,23 @@ def main() -> None:
     parser.add_argument("--deploy-tool", type=Path, required=True)
     parser.add_argument("--deploy-tool-sha256", required=True)
     parser.add_argument("--stage", type=Path, required=True)
+    parser.add_argument("--sdk-redist-root", type=Path, required=True)
+    parser.add_argument("--d3dcompiler-sha256", required=True)
+    parser.add_argument("--dxcompiler-sha256", required=True)
+    parser.add_argument("--dxil-sha256", required=True)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
 
     expected_list_hash = args.source_list_sha256.upper()
     expected_tool_hash = args.deploy_tool_sha256.upper()
+    expected_sdk_hashes = {
+        "d3dcompiler_47.dll": args.d3dcompiler_sha256.upper(),
+        "dxcompiler.dll": args.dxcompiler_sha256.upper(),
+        "dxil.dll": args.dxil_sha256.upper(),
+    }
     for label, value in (("saved source list", expected_list_hash),
-                         ("deployment tool", expected_tool_hash)):
+                         ("deployment tool", expected_tool_hash),
+                         *((name, value) for name, value in expected_sdk_hashes.items())):
         if len(value) != 64 or any(c not in "0123456789ABCDEF" for c in value):
             raise ValueError(f"An exact SHA-256 for the {label} is required")
     if args.report.exists() or args.report.is_symlink():
@@ -69,6 +81,9 @@ def main() -> None:
         raise ValueError("Keep origin evidence outside the staged payload")
     if args.source_list.resolve(strict=False).is_relative_to(args.stage.resolve(strict=True)):
         raise ValueError("Keep the Qt source listing outside the staged payload")
+    reject_reparse_ancestors(args.sdk_redist_root)
+    if not args.sdk_redist_root.is_dir():
+        raise ValueError("The selected Windows SDK Redist directory is missing")
 
     reject_reparse_ancestors(args.selected_qt_prefix)
     reject_reparse_ancestors(args.deploy_tool)
@@ -103,36 +118,39 @@ def main() -> None:
 
     rows = []
     for name in SHADER_DLLS:
-        source_selection = "qt-listed"
-        if name == "dxil.dll" and len(matches[name]) == 0:
-            # Qt 6.11.2 deploys DXIL alongside DXC, but its dry-run source
-            # listing can omit DXIL. Require the same source directory and
-            # exact staged bytes instead of dropping the provenance check.
-            if len(matches["dxcompiler.dll"]) != 1:
-                raise ValueError("DXIL needs one Qt-listed DXC source")
-            source = matches["dxcompiler.dll"][0].with_name("dxil.dll")
-            source_selection = "adjacent-to-qt-listed-dxcompiler"
-        elif len(matches[name]) != 1:
-            raise ValueError(f"Expected exactly one Qt-listed source for {name}; found {len(matches[name])}")
-        else:
-            source = matches[name][0]
+        sdk_source = args.sdk_redist_root / name
+        sdk_bytes = read_regular_file(sdk_source)
+        sdk_hash = sha256(sdk_bytes)
+        if sdk_hash != expected_sdk_hashes[name]:
+            raise ValueError(f"Pinned Windows SDK Redist hash differs: {name}")
         staged = args.stage / name
-        reject_reparse_ancestors(source)
         reject_reparse_ancestors(staged)
-        if source.resolve(strict=True) == staged.resolve(strict=True):
-            raise ValueError(f"Qt source and staged path are the same file: {name}")
-        source_bytes = read_regular_file(source)
         staged_bytes = read_regular_file(staged)
-        source_hash = sha256(source_bytes)
-        if len(source_bytes) != len(staged_bytes) or source_hash != sha256(staged_bytes):
-            raise ValueError(f"Qt source and staged bytes differ: {name}")
+        if sdk_source.resolve(strict=True) == staged.resolve(strict=True):
+            raise ValueError(f"Windows SDK source and staged path are the same file: {name}")
+        if len(sdk_bytes) != len(staged_bytes) or sdk_hash != sha256(staged_bytes):
+            raise ValueError(f"Windows SDK source and staged bytes differ: {name}")
+        # Qt's dry-run can list a different copy from the staged SDK Redist
+        # bytes, so its listing is diagnostic evidence, never the source of
+        # truth for the actual package. Record the difference without
+        # weakening the pinned SDK-to-stage equality requirement above.
+        listed_hash = None
+        listed_path = None
+        if len(matches[name]) == 1:
+            listed_path = matches[name][0]
+            listed_hash = sha256(read_regular_file(listed_path))
         rows.append({
             "name": name,
-            "sourcePath": str(source),
+            "sourcePath": str(sdk_source),
             "stagedPath": str(staged),
-            "bytes": len(source_bytes),
-            "sha256": source_hash,
-            "sourceSelection": source_selection,
+            "sdkRedistPath": str(sdk_source),
+            "bytes": len(sdk_bytes),
+            "sha256": sdk_hash,
+            "sourceSelection": "pinned-sdk-redist",
+            "qtListedCount": len(matches[name]),
+            "qtListedPath": str(listed_path) if listed_path else None,
+            "qtListedSha256": listed_hash,
+            "qtListedMatchesStage": listed_hash == sdk_hash if listed_hash else None,
         })
 
     report = {
@@ -141,6 +159,7 @@ def main() -> None:
         "selectedQtPrefix": str(args.selected_qt_prefix.resolve(strict=True)),
         "deploymentToolPath": str(args.deploy_tool.resolve(strict=True)),
         "deploymentToolSha256": tool_hash,
+        "sdkRedistRoot": str(args.sdk_redist_root.resolve(strict=True)),
         "files": rows,
         "redistributionRightsEstablished": False,
     }

@@ -154,6 +154,24 @@ jobs:
           Write-Output "Qt Mesa archive SHA-256 $mesaArchiveHash; DLL SHA-256 $mesaDllHash"
           Write-Output 'Qt kit is hash-pinned; final acceptance still requires V1 byte comparison and attribution.'
 
+      - name: Require pinned Windows SDK shader Redist bytes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = 'C:\Program Files (x86)\Windows Kits\10\Redist\D3D\x64'
+          $expected = @{
+            'd3dcompiler_47.dll' = 'E407B9FFADEF47E87994DC488214F75405CF04EE99589F2315FC7AB99FD1DFE2'
+            'dxcompiler.dll' = '6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE'
+            'dxil.dll' = 'A0CFAF3E930894E9B5D48EFCACAED6ACE5C645BAD3C4E99B4A23C9831A078120'
+          }
+          foreach ($name in @('d3dcompiler_47.dll', 'dxcompiler.dll', 'dxil.dll')) {
+            $source = Join-Path $sdk $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -cne $expected[$name]) {
+              throw "Pinned Windows SDK Redist byte check failed: $name"
+            }
+            Write-Output "$name Windows SDK SHA-256 $($expected[$name])"
+          }
+
       - name: Prepare pinned build-only Vulkan SDK
         run: |
           $ErrorActionPreference = 'Stop'
@@ -388,7 +406,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Base Qt deployment check failed.' }
           Write-Output 'Base deployment passed; the final seven-file payload remains a separate gate.'
 
-      - name: Bind deployed shader DLLs to Qt-listed sources
+      - name: Bind deployed shader DLLs to pinned Windows SDK sources
         run: |
           $ErrorActionPreference = 'Stop'
           $bin = 'out/build/windows-release-reviewed/Release'
@@ -407,12 +425,21 @@ jobs:
           $report = Join-Path $env:RUNNER_TEMP 'filemanager-shader-origins.json'
           $sourceHash = (Get-FileHash -LiteralPath $sourceList -Algorithm SHA256).Hash
           $toolHash = (Get-FileHash -LiteralPath $deploy -Algorithm SHA256).Hash
-          $output = & python tools/Verify-ShaderCompilerOrigins.py --source-list $sourceList --source-list-sha256 $sourceHash --selected-qt-prefix $env:FILE_MANAGER_QT_PREFIX --deploy-tool $deploy --deploy-tool-sha256 $toolHash --stage $bin --report $report 2>&1
+          $sdk = 'C:\Program Files (x86)\Windows Kits\10\Redist\D3D\x64'
+          $output = & python tools/Verify-ShaderCompilerOrigins.py `
+            --source-list $sourceList --source-list-sha256 $sourceHash `
+            --selected-qt-prefix $env:FILE_MANAGER_QT_PREFIX `
+            --deploy-tool $deploy --deploy-tool-sha256 $toolHash `
+            --stage $bin --sdk-redist-root $sdk `
+            --d3dcompiler-sha256 E407B9FFADEF47E87994DC488214F75405CF04EE99589F2315FC7AB99FD1DFE2 `
+            --dxcompiler-sha256 6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE `
+            --dxil-sha256 A0CFAF3E930894E9B5D48EFCACAED6ACE5C645BAD3C4E99B4A23C9831A078120 `
+            --report $report 2>&1
           if ($LASTEXITCODE -ne 0) {
             $safeDetails = @($output | ForEach-Object { [string]$_ } |
-              Where-Object { $_ -match '^Shader compiler origin check failed: (Expected exactly one Qt-listed source for (d3dcompiler_47|dxcompiler|dxil)\.dll; found [0-9]+|DXIL needs one Qt-listed DXC source|Qt source and staged bytes differ: (d3dcompiler_47|dxcompiler|dxil)\.dll)$' })
+              Where-Object { $_ -match '^Shader compiler origin check failed: (Pinned Windows SDK Redist hash differs: (d3dcompiler_47|dxcompiler|dxil)\.dll|Windows SDK source and staged bytes differ: (d3dcompiler_47|dxcompiler|dxil)\.dll)$' })
             if ($safeDetails.Count -eq 1) { Write-Output $safeDetails[0] }
-            throw 'The staged shader DLLs do not match Qt-listed source files.'
+            throw 'The staged shader DLLs do not match the pinned Windows SDK Redist files.'
           }
           $origin = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
           if ($origin.status -cne 'matched' -or @($origin.files).Count -ne 3) {
