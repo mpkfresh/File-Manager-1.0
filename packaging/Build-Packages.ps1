@@ -24,6 +24,7 @@ param(
     [switch]$SkipMsi,
     [switch]$SkipZip,
     [switch]$AcceptWixEula,
+    [switch]$ReviewOnlyPrerelease,
     [switch]$RequireSignedBinaries,
     [ValidatePattern('^[A-Fa-f0-9]{40}$')]
     [string]$ExpectedSignerThumbprint
@@ -38,6 +39,11 @@ if ($SkipMsi -and $SkipZip) {
 }
 if ($RequireSignedBinaries -and -not $ExpectedSignerThumbprint) {
     throw 'Final signed packaging requires the expected signer certificate thumbprint.'
+}
+if ($ReviewOnlyPrerelease -and ($RequireSignedBinaries -or $ExpectedSignerThumbprint -or
+        $ChannelSlug -cne 'unsigned-review' -or
+        -not $PSBoundParameters.ContainsKey('ChannelSlug'))) {
+    throw 'Review-only prerelease requires explicit unsigned-review channel and no signing parameters.'
 }
 if ($RequireSignedBinaries -and -not $PSBoundParameters.ContainsKey('ChannelSlug')) {
     throw 'Final signed packaging requires an explicit channel slug; do not inherit the alpha default.'
@@ -193,6 +199,9 @@ if ($ExpectedPayloadManifest) {
         throw 'Expected payload manifest differs from the approved manifest hash.'
     }
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    if ($manifest.reviewOnlyPrerelease -ne [bool]$ReviewOnlyPrerelease) {
+        throw 'Payload manifest review-only mode does not match this package request.'
+    }
     $expectedExecutables = @(Get-FileManagerExecutableNames)
     $entries = @($manifest.files)
     Assert-FileManagerPayloadPaths -Paths @($entries | ForEach-Object { [string]$_.path }) `
@@ -234,6 +243,9 @@ $ProductVersion = $compiledIdentity.Version
 $versionContract = Get-FileManagerVersionContract $ProductVersion
 $ProductName = $compiledIdentity.ProductName
 $Manufacturer = $compiledIdentity.Manufacturer
+if ($ReviewOnlyPrerelease -and $ProductVersion -cne '1.0.0') {
+    throw 'Review-only prerelease mode is limited to version 1.0.0.'
+}
 if ([Version]$ProductVersion -ge [Version]'1.0.0' -and
         -not $PSBoundParameters.ContainsKey('ChannelSlug')) {
     throw 'Version 1.0 or newer requires an explicit channel slug; do not inherit the alpha default.'
@@ -256,7 +268,17 @@ if ($ReviewedFfmpegManifest) {
         -ManifestPath $ReviewedFfmpegManifest `
         -ManifestSha256 $ExpectedReviewedFfmpegManifestSha256 `
         -RuntimeDirectory $ReviewedFfmpegRuntimeDirectory `
-        -RequireReleaseApproval:$requiresReviewedFfmpeg
+        -RequireReleaseApproval:($requiresReviewedFfmpeg -and -not $ReviewOnlyPrerelease)
+    if ($ReviewOnlyPrerelease) {
+        $reviewRecord = Get-Content -Raw -LiteralPath (
+            Join-Path $workspace $ReviewedFfmpegManifest) | ConvertFrom-Json
+        if ($reviewRecord.status -cne 'review-only' -or
+            $reviewRecord.releaseApproved -ne $false -or
+            $reviewRecord.pluginProvenanceCleared -ne $false -or
+            $reviewRecord.moduleProvenanceCleared -ne $false) {
+            throw 'Unsigned prerelease review requires the unapproved media candidate.'
+        }
+    }
 }
 if ($requiresPinnedRuntime -and
         (-not $ExpectedPayloadManifest -or -not $ExpectedManifestSha256 -or
@@ -283,18 +305,22 @@ $stage = [IO.Path]::GetFullPath((Join-Path $workspace (Join-Path $StageDirectory
 $zip = Join-Path $output "$packageName-portable.zip"
 $msi = Join-Path $output "$packageName.msi"
 $payloadWxs = Join-Path (Split-Path -Parent $stage) "$packageName-payload.wxs"
+$reviewNotice = Join-Path $output "$packageName-UNSIGNED-REVIEW-ONLY.txt"
 
 $writeTargets = @($output, $stage)
 if (-not $SkipZip) { $writeTargets += $zip }
 if (-not $SkipMsi) { $writeTargets += @($msi, $payloadWxs) }
+if ($ReviewOnlyPrerelease) { $writeTargets += $reviewNotice }
 foreach ($target in $writeTargets) {
     Assert-WorkspacePackagingTarget -Target $target -Workspace $workspace
 }
-$protectedRelease = $RequireSignedBinaries -or [bool]$ExpectedSignerThumbprint
+$protectedRelease = $RequireSignedBinaries -or [bool]$ExpectedSignerThumbprint -or
+    $ReviewOnlyPrerelease
 if ($protectedRelease) {
     $releaseTargets = @($stage)
     if (-not $SkipZip) { $releaseTargets += $zip }
     if (-not $SkipMsi) { $releaseTargets += @($msi, $payloadWxs) }
+    if ($ReviewOnlyPrerelease) { $releaseTargets += $reviewNotice }
     foreach ($target in $releaseTargets) {
         if (Test-Path -LiteralPath $target) {
             throw "Signed packaging requires a fresh output path: $target"
@@ -480,3 +506,14 @@ $hashes = foreach ($artifact in $artifacts) {
     [pscustomobject]@{ Name = $artifact.Name; Length = $artifact.Length; SHA256 = $hash.Hash }
 }
 $hashes | Format-Table -AutoSize
+if ($ReviewOnlyPrerelease) {
+    $warning = @(
+        'FILE MANAGER 1.0.0 — UNSIGNED REVIEW ONLY'
+        'These MSI and portable files are unsigned prerelease review candidates.'
+        'They are not the signed 1.0 release and have not been approved for publication.'
+        'Verify the exact SHA-256 hashes and review the contained files before any use.'
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($reviewNotice, $warning + "`r`n",
+        [Text.UTF8Encoding]::new($false))
+    Write-Output "Review notice SHA-256 $((Get-FileHash -LiteralPath $reviewNotice -Algorithm SHA256).Hash)"
+}

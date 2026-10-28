@@ -20,7 +20,8 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{64}$')]
     [string]$ExpectedReviewedFfmpegManifestSha256,
     [Parameter(Mandatory)][string]$ReviewedFfmpegRuntimeDirectory,
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    [switch]$ReviewOnlyPrerelease
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,7 +57,19 @@ if (-not (Test-Path -LiteralPath $build -PathType Container)) {
 $reviewedFfmpeg = Get-ReviewedFfmpegInputs -Workspace $workspace `
     -ManifestPath $ReviewedFfmpegManifest `
     -ManifestSha256 $ExpectedReviewedFfmpegManifestSha256 `
-    -RuntimeDirectory $ReviewedFfmpegRuntimeDirectory -RequireReleaseApproval
+    -RuntimeDirectory $ReviewedFfmpegRuntimeDirectory `
+    -RequireReleaseApproval:(-not $ReviewOnlyPrerelease)
+if ($ReviewOnlyPrerelease) {
+    $reviewRecord = Get-Content -Raw -LiteralPath (Resolve-WorkspaceChild $ReviewedFfmpegManifest) |
+        ConvertFrom-Json
+    if ($reviewRecord.status -cne 'review-only' -or
+        $reviewRecord.releaseApproved -ne $false -or
+        $reviewRecord.pluginProvenanceCleared -ne $false -or
+        $reviewRecord.moduleProvenanceCleared -ne $false -or
+        $ProductVersion -cne '1.0.0') {
+        throw 'Unsigned prerelease review requires the unapproved 1.0.0 media candidate.'
+    }
+}
 if (-not [IO.Path]::IsPathRooted($RuntimeRedistRoot)) {
     throw 'Runtime redistributable root must be an absolute path.'
 }
@@ -100,7 +113,12 @@ $files = foreach ($relative in $paths) {
 $app = @($files | Where-Object { $_.path -ceq 'FileManager.exe' })
 if ($app.Count -ne 1) { throw 'Expected one FileManager.exe in the payload contract.' }
 $report = [ordered]@{
-    purpose = 'Expected final payload inputs; not signing or publication approval'
+    purpose = if ($ReviewOnlyPrerelease) {
+        'Expected unsigned review prerelease inputs; not release or publication approval'
+    } else {
+        'Expected final payload inputs; not signing or publication approval'
+    }
+    reviewOnlyPrerelease = [bool]$ReviewOnlyPrerelease
     generatedUtc = [DateTime]::UtcNow.ToString('o')
     appSha256 = $app[0].sha256
     runtime = [ordered]@{

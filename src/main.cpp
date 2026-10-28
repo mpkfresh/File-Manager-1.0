@@ -64,13 +64,19 @@ int main(int argc, char** argv)
             QStringLiteral("tls/qschannelbackend.dll"),
             QStringLiteral("licenses/Qt-LICENSE.txt"),
             QStringLiteral("sbom/qtbase-6.11.2.cdx.json"),
-            QStringLiteral("sbom/qtmultimedia-6.11.2.cdx.json"),
             QStringLiteral("THIRD_PARTY_NOTICES.md"),
             QStringLiteral("SECURITY.md")};
         for (const QString& relative : required) {
             if (!QFileInfo::exists(runtime.filePath(relative)))
                 return 2;
         }
+        // The build uses Qt's vendor SBOM. A 1.0 package replaces it with
+        // the provenance record for the source-built media files it ships.
+        if (!QFileInfo::exists(runtime.filePath(
+                QStringLiteral("sbom/qtmultimedia-6.11.2.cdx.json")))
+            && !QFileInfo::exists(runtime.filePath(
+                QStringLiteral("manifest/media-provenance.json"))))
+            return 2;
         // Exercise the deployed SVG plugin, including rendering beyond nominal size.
         for (const int side : {16, 256, 2048}) {
             const QPixmap logo = filemanager::ui::BrandIdentity::logo(QSize(side, side));
