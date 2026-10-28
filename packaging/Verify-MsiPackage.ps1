@@ -60,7 +60,8 @@ $properties = @{}
 foreach ($row in Read-MsiRows 'SELECT `Property`,`Value` FROM `Property`') {
     $properties[$row[0]] = $row[1]
 }
-if ($ExpectedProductName -cne 'File Manager' -or
+if (($PSBoundParameters.ContainsKey('ExpectedProductName') -and
+            $ExpectedProductName -cne $installerIdentity.Name) -or
         $properties.ProductName -cne $installerIdentity.Name -or
         $properties.ProductVersion -ne $versionContract.MsiVersion -or
         $properties.Manufacturer -ne $ExpectedManufacturer) {
