@@ -163,14 +163,20 @@ jobs:
             'dxcompiler.dll' = '6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE'
             'dxil.dll' = 'A0CFAF3E930894E9B5D48EFCACAED6ACE5C645BAD3C4E99B4A23C9831A078120'
           }
+          $mismatch = $false
           foreach ($name in @('d3dcompiler_47.dll', 'dxcompiler.dll', 'dxil.dll')) {
             $source = Join-Path $sdk $name
-            if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or
-                (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -cne $expected[$name]) {
-              throw "Pinned Windows SDK Redist byte check failed: $name"
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              Write-Output "$name Windows SDK Redist: absent"
+              $mismatch = $true
+              continue
             }
-            Write-Output "$name Windows SDK SHA-256 $($expected[$name])"
+            $item = Get-Item -LiteralPath $source -ErrorAction Stop
+            $actual = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+            Write-Output "$name Windows SDK Redist: $($item.Length) bytes; SHA-256 $actual"
+            if ($actual -cne $expected[$name]) { $mismatch = $true }
           }
+          if ($mismatch) { throw 'Hosted Windows SDK shader bytes differ from the pinned 1.0 inputs.' }
 
       - name: Prepare pinned build-only Vulkan SDK
         run: |
