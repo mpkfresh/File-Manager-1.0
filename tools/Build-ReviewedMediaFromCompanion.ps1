@@ -5,9 +5,10 @@ companion in fresh directories. This source is prepared but unrun. Execution
 requires the owner's direct approval for the exact host and attempt.
 
 The caller supplies the reviewed companion, an isolated MSYS2 tool directory,
-the already hash-pinned Qt 6.11.2 MSVC kit and ShaderTools prefix, and a
-VS2022 developer environment. This script makes no network request, changes
-no installed Qt kit, and does not mark any result release-approved.
+the already hash-pinned Qt 6.11.2 MSVC kit, ShaderTools and Vulkan SDK build
+inputs, and a VS2022 developer environment. This script makes no network
+request, changes no installed Qt kit, and does not mark any result
+release-approved.
 #>
 [CmdletBinding()]
 param(
@@ -16,6 +17,9 @@ param(
     [Parameter(Mandatory)][string]$MsysBin,
     [Parameter(Mandatory)][string]$QtPrefix,
     [Parameter(Mandatory)][string]$ShaderToolsPrefix,
+    [Parameter(Mandatory)][string]$VulkanSdkPrefix,
+    [Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$VulkanHeaderSha256,
+    [Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$VulkanImportLibrarySha256,
     [Parameter(Mandatory)][string]$VcVars64,
     [Parameter(Mandatory)][string]$CMakeExe,
     [Parameter(Mandatory)][string]$NinjaExe,
@@ -176,6 +180,7 @@ if (-not [IO.Path]::IsPathFullyQualified($OutputRoot) -or
     throw 'A fresh, absolute, space-free output directory is required.'
 }
 foreach ($commandPath in @($MsysBin, $QtPrefix, $ShaderToolsPrefix,
+        $VulkanSdkPrefix,
         $VcVars64, $CMakeExe, $NinjaExe)) {
     if ($commandPath.Contains('"') -or
             $commandPath -match '[^\x20-\x7E]|[&|<>^%!]') {
@@ -183,7 +188,8 @@ foreach ($commandPath in @($MsysBin, $QtPrefix, $ShaderToolsPrefix,
     }
 }
 foreach ($path in @($root, $companion, $MsysBin, $QtPrefix,
-        $ShaderToolsPrefix, $VcVars64, $CMakeExe, $NinjaExe, $PythonExe,
+        $ShaderToolsPrefix, $VulkanSdkPrefix, $VcVars64, $CMakeExe,
+        $NinjaExe, $PythonExe,
         $GitExe, $extractor)) {
     Assert-OrdinaryAncestors $path
 }
@@ -192,13 +198,14 @@ foreach ($file in @($VcVars64, $CMakeExe, $NinjaExe, $PythonExe,
     $item = Get-Item -LiteralPath $file -Force -ErrorAction Stop
     if ($item -isnot [IO.FileInfo]) { throw "Required tool is not a file: $file" }
 }
-foreach ($directory in @($companion, $MsysBin, $QtPrefix, $ShaderToolsPrefix)) {
+foreach ($directory in @($companion, $MsysBin, $QtPrefix,
+        $ShaderToolsPrefix, $VulkanSdkPrefix)) {
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
         throw "Required input directory is missing: $directory"
     }
 }
 foreach ($directory in @($companion, $MsysBin, $QtPrefix,
-        $ShaderToolsPrefix)) {
+        $ShaderToolsPrefix, $VulkanSdkPrefix)) {
     $inputRoot = [IO.Path]::GetFullPath($directory).TrimEnd('\')
     if ($root.StartsWith($inputRoot + '\',
             [StringComparison]::OrdinalIgnoreCase)) {
@@ -255,6 +262,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $ShaderToolsPrefix `
         'lib/cmake/Qt6ShaderTools/Qt6ShaderToolsConfig.cmake') -PathType Leaf)) {
     throw 'Matching Qt ShaderTools configuration is missing.'
 }
+$vulkanHeader = Join-Path $VulkanSdkPrefix 'Include/vulkan/vulkan.h'
+$vulkanLibrary = Join-Path $VulkanSdkPrefix 'Lib/vulkan-1.lib'
+Assert-Hash $vulkanHeader $VulkanHeaderSha256.ToUpperInvariant()
+Assert-Hash $vulkanLibrary $VulkanImportLibrarySha256.ToUpperInvariant()
 
 [IO.Directory]::CreateDirectory($root) | Out-Null
 foreach ($relative in @('logs', 'reports', 'sources')) {
@@ -367,6 +378,7 @@ $qtBuild = Join-Path $root 'qt-build'
 $qtOut = Join-Path $root 'qt-output'
 $qtConfigure = Join-Path $root 'configure-qt.cmd'
 $qtCompile = Join-Path $root 'build-qt.cmd'
+$env:VULKAN_SDK = $VulkanSdkPrefix
 $shaderConfig = Join-Path $ShaderToolsPrefix `
     'lib/cmake/Qt6ShaderTools'
 $qtPath = "$($ShaderToolsPrefix)\bin;$QtPrefix\bin"
@@ -376,7 +388,7 @@ $qtPath = "$($ShaderToolsPrefix)\bin;$QtPrefix\bin"
     'if errorlevel 1 exit /b 10',
     "if /I not `"%VCToolsVersion%`"==`"$ExpectedVcToolsVersion`" exit /b 14",
     "set `"PATH=$qtPath;%PATH%`"",
-    "`"$CMakeExe`" -S `"$qtSource`" -B `"$qtBuild`" -G Ninja `"-DCMAKE_MAKE_PROGRAM=$NinjaExe`" -DCMAKE_BUILD_TYPE=Release `"-DCMAKE_PREFIX_PATH=$ShaderToolsPrefix;$QtPrefix`" `"-DQt6ShaderTools_DIR=$shaderConfig`" `"-DFFMPEG_DIR=$ffmpegOut`" -DQT_DEPLOY_FFMPEG=OFF -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF `"-DCMAKE_INSTALL_PREFIX=$qtOut`"",
+    "`"$CMakeExe`" -S `"$qtSource`" -B `"$qtBuild`" -G Ninja `"-DCMAKE_MAKE_PROGRAM=$NinjaExe`" -DCMAKE_BUILD_TYPE=Release `"-DCMAKE_PREFIX_PATH=$ShaderToolsPrefix;$QtPrefix`" `"-DQt6ShaderTools_DIR=$shaderConfig`" `"-DFFMPEG_DIR=$ffmpegOut`" `"-DVulkan_INCLUDE_DIR=$(Join-Path $VulkanSdkPrefix 'Include')`" `"-DVulkan_LIBRARY=$vulkanLibrary`" -DQT_DEPLOY_FFMPEG=OFF -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF `"-DCMAKE_INSTALL_PREFIX=$qtOut`"",
     'exit /b %errorlevel%'
 ) | Set-Content -LiteralPath $qtConfigure -Encoding ascii
 @(
@@ -389,6 +401,24 @@ $qtPath = "$($ShaderToolsPrefix)\bin;$QtPrefix\bin"
     'exit /b %errorlevel%'
 ) | Set-Content -LiteralPath $qtCompile -Encoding ascii
 Invoke-CmdFile 'qt-configure' $qtConfigure 600
+$qtCache = Join-Path $qtBuild 'CMakeCache.txt'
+$cacheLines = @(Get-Content -LiteralPath $qtCache -ErrorAction Stop)
+foreach ($entry in @(
+        @{ name='Vulkan_INCLUDE_DIR'; expected=(Join-Path $VulkanSdkPrefix 'Include') },
+        @{ name='Vulkan_LIBRARY'; expected=$vulkanLibrary }
+    )) {
+    $cacheEntries = @($cacheLines | Where-Object {
+        $_.StartsWith($entry.name + ':', [StringComparison]::Ordinal)
+    })
+    if ($cacheEntries.Count -ne 1 -or $cacheEntries[0].IndexOf('=') -lt 0) {
+        throw 'Qt CMake did not record exactly one pinned Vulkan build input.'
+    }
+    $actual = $cacheEntries[0].Substring($cacheEntries[0].IndexOf('=') + 1)
+    if ([IO.Path]::GetFullPath($actual) -ne
+            [IO.Path]::GetFullPath($entry.expected)) {
+        throw 'Qt CMake selected a different Vulkan build input.'
+    }
+}
 Invoke-CmdFile 'qt-build' $qtCompile 3600
 
 $plugins = @(Get-ChildItem -LiteralPath $qtBuild -Recurse -File `
@@ -428,6 +458,9 @@ $result = [ordered]@{
     sourceCompanionSha256 = $checksumListHash
     ffmpegSourceSha256 = $archiveHashes['source/ffmpeg-n7.1.5.tar.gz']
     qtMultimediaSourceSha256 = $archiveHashes['source/qtmultimedia-everywhere-src-6.11.2.tar.xz']
+    vulkanSdkVersion = '1.4.357.0'
+    vulkanHeaderSha256 = $VulkanHeaderSha256.ToUpperInvariant()
+    vulkanImportLibrarySha256 = $VulkanImportLibrarySha256.ToUpperInvariant()
     zlibSourceSha256 = $archiveHashes['source/zlib-1.3.1.tar.gz']
     zlibInteropHeaderSha256 = (Get-FileHash -LiteralPath `
         (Join-Path $interop 'zconf.h') -Algorithm SHA256).Hash
