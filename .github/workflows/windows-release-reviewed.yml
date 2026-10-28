@@ -118,15 +118,40 @@ jobs:
             if ($LASTEXITCODE) { throw "Qt extraction failed: $($component.name)" }
             Write-Output "$($component.name) archive SHA-256 $hash"
           }
+          # Qt distributes Mesa software OpenGL separately from qtbase.
+          $mesaName = '6.11.2-0-202608131017opengl32sw-64-mesa_11_2_2-signed_sha256.7z'
+          $mesaArchive = Join-Path $archives $mesaName
+          $mesaUri = "$base/qt.qt6.6112.win64_msvc2022_64/$mesaName"
+          Invoke-WebRequest -Uri $mesaUri -OutFile $mesaArchive -ErrorAction Stop
+          $mesaArchiveHash = (Get-FileHash -LiteralPath $mesaArchive -Algorithm SHA256).Hash
+          if ($mesaArchiveHash -cne '59A086716CFD4BDEC035698D501BA45526F8D2ECB5C0C428A356D8BE0B5D2C79') {
+            throw 'Official Qt Mesa archive hash mismatch.'
+          }
+          & $extractor e $mesaArchive 'opengl32sw.dll' "-o$kit" -y
+          if ($LASTEXITCODE) { throw 'Qt Mesa extraction failed.' }
+          $mesaDll = Join-Path $kit 'opengl32sw.dll'
+          $mesaDllHash = (Get-FileHash -LiteralPath $mesaDll -Algorithm SHA256).Hash
+          if ($mesaDllHash -cne 'B04DE4541863BC7D8879040A78889C4849C1B1DA2784C4630F734C146C2998CE') {
+            throw 'Extracted Qt Mesa DLL differs from the reviewed 1.0 payload.'
+          }
           $configs = @(Get-ChildItem -LiteralPath $kit -Filter Qt6Config.cmake -File -Recurse)
           if ($configs.Count -ne 1) { throw 'Expected exactly one extracted Qt6Config.cmake.' }
           $prefix = $configs[0].Directory.Parent.Parent.Parent.FullName
+          $mesaDestination = Join-Path $prefix 'bin/opengl32sw.dll'
+          if (Test-Path -LiteralPath $mesaDestination) {
+            throw 'The Qt kit unexpectedly already contains Mesa.'
+          }
+          Copy-Item -LiteralPath $mesaDll -Destination $mesaDestination -ErrorAction Stop
+          if ((Get-FileHash -LiteralPath $mesaDestination -Algorithm SHA256).Hash -cne $mesaDllHash) {
+            throw 'The Qt kit Mesa copy differs from the reviewed DLL.'
+          }
           foreach ($required in @('bin/Qt6Core.dll','bin/Qt6Multimedia.dll','bin/windeployqt.exe')) {
             if (-not (Test-Path -LiteralPath (Join-Path $prefix $required) -PathType Leaf)) {
               throw "Qt kit is missing $required"
             }
           }
           "FILE_MANAGER_QT_PREFIX=$prefix" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "Qt Mesa archive SHA-256 $mesaArchiveHash; DLL SHA-256 $mesaDllHash"
           Write-Output 'Qt kit is hash-pinned; final acceptance still requires V1 byte comparison and attribution.'
 
       - name: Prepare pinned build-only Vulkan SDK
