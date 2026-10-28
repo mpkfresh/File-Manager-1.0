@@ -409,6 +409,9 @@ jobs:
           $toolHash = (Get-FileHash -LiteralPath $deploy -Algorithm SHA256).Hash
           $output = & python tools/Verify-ShaderCompilerOrigins.py --source-list $sourceList --source-list-sha256 $sourceHash --selected-qt-prefix $env:FILE_MANAGER_QT_PREFIX --deploy-tool $deploy --deploy-tool-sha256 $toolHash --stage $bin --report $report 2>&1
           if ($LASTEXITCODE -ne 0) {
+            $safeDetails = @($output | ForEach-Object { [string]$_ } |
+              Where-Object { $_ -match '^Shader compiler origin check failed: (Expected exactly one Qt-listed source for (d3dcompiler_47|dxcompiler|dxil)\.dll; found [0-9]+|DXIL needs one Qt-listed DXC source|Qt source and staged bytes differ: (d3dcompiler_47|dxcompiler|dxil)\.dll)$' })
+            if ($safeDetails.Count -eq 1) { Write-Output $safeDetails[0] }
             throw 'The staged shader DLLs do not match Qt-listed source files.'
           }
           $origin = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json

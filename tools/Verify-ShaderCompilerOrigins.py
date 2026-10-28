@@ -103,9 +103,19 @@ def main() -> None:
 
     rows = []
     for name in SHADER_DLLS:
-        if len(matches[name]) != 1:
+        source_selection = "qt-listed"
+        if name == "dxil.dll" and len(matches[name]) == 0:
+            # Qt 6.11.2 deploys DXIL alongside DXC, but its dry-run source
+            # listing can omit DXIL. Require the same source directory and
+            # exact staged bytes instead of dropping the provenance check.
+            if len(matches["dxcompiler.dll"]) != 1:
+                raise ValueError("DXIL needs one Qt-listed DXC source")
+            source = matches["dxcompiler.dll"][0].with_name("dxil.dll")
+            source_selection = "adjacent-to-qt-listed-dxcompiler"
+        elif len(matches[name]) != 1:
             raise ValueError(f"Expected exactly one Qt-listed source for {name}; found {len(matches[name])}")
-        source = matches[name][0]
+        else:
+            source = matches[name][0]
         staged = args.stage / name
         reject_reparse_ancestors(source)
         reject_reparse_ancestors(staged)
@@ -122,6 +132,7 @@ def main() -> None:
             "stagedPath": str(staged),
             "bytes": len(source_bytes),
             "sha256": source_hash,
+            "sourceSelection": source_selection,
         })
 
     report = {
