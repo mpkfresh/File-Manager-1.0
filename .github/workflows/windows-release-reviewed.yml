@@ -11,6 +11,11 @@ on:
         description: Full reviewed source commit ID
         required: true
         type: string
+      review_unsigned_package:
+        description: Build and verify a local-only unsigned V2 preview package
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -89,6 +94,48 @@ jobs:
             (Get-Command $tool -ErrorAction Stop).Source | Out-Null
           }
           Write-Output 'Pinned Windows media build prerequisites are present.'
+
+      - name: Preflight pinned VC143 files for local V2 review
+        if: ${{ inputs.review_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '14.44.35207'
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) `
+            'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsRoot = @(& $vswhere -latest -version '[17.0,18.0)' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath)
+          if ($LASTEXITCODE -or $vsRoot.Count -ne 1) {
+            throw 'One Visual Studio 2022 C++ installation is required.'
+          }
+          $redist = Join-Path $vsRoot[0] 'VC/Redist/MSVC'
+          $crt = Join-Path $redist "$version/x64/Microsoft.VC143.CRT"
+          if (-not (Test-Path -LiteralPath $crt -PathType Container)) {
+            throw 'Pinned VC143 redistribution files are absent; review the runner input before building.'
+          }
+          . ./packaging/PayloadInventory.ps1
+          $names = @(Get-FileManagerRuntimeNames -ProductVersion '1.0.0')
+          if ($names.Count -ne 10 -or @($names | Select-Object -Unique).Count -ne 10) {
+            throw 'The 1.0 runtime contract differs from ten distinct DLL names.'
+          }
+          $files = foreach ($name in $names) {
+            $path = Join-Path $crt $name
+            $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if ($item -isnot [IO.FileInfo] -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw 'The pinned VC143 runtime contains an unsafe file.'
+            }
+            [ordered]@{ name=$name; bytes=$item.Length;
+              sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
+          }
+          [ordered]@{ version=$version; files=@($files) } |
+            ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'filemanager-v2-vc143-input.json') -Encoding utf8NoBOM
+          "FILE_MANAGER_VC_REDIST_ROOT=$redist" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FILE_MANAGER_VC_REDIST_VERSION=$version" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'Pinned VC143 redistribution input is present and hash-recorded locally.'
 
       - name: Fetch and hash-pin the proposed Qt 6.11.2 MSVC 2022 kit
         run: |
@@ -615,3 +662,22 @@ jobs:
             Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP `
               'filemanager-v1-handoff-candidate.json') -Encoding utf8NoBOM
           Write-Output "Recorded $($present.Count) of 58 release paths in a local review-only manifest; no artifact uploaded."
+
+      - name: Build and verify the local-only unsigned V2 preview package
+        if: ${{ inputs.review_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $resultText = & ./tools/Run-HostedUnsignedPreviewPackageGate.ps1 `
+            -SourceCheckout $env:GITHUB_WORKSPACE `
+            -ExpectedSourceCommit $env:GITHUB_SHA `
+            -MediaBuildResult $env:FILE_MANAGER_MEDIA_RESULT `
+            -MediaStage $env:FILE_MANAGER_MEDIA_STAGE `
+            -RuntimeRedistRoot $env:FILE_MANAGER_VC_REDIST_ROOT `
+            -RuntimeVersion $env:FILE_MANAGER_VC_REDIST_VERSION `
+            -AdditionalForbiddenCues @($env:RUNNER_TEMP)
+          $result = $resultText | ConvertFrom-Json
+          if ($result.status -cne 'local-review-only' -or $result.uploaded -ne $false -or
+              $result.sourceCommit -ine $env:GITHUB_SHA) {
+            throw 'The V2 package gate did not return a matching local-only result.'
+          }
+          Write-Output "Unsigned V2 review package passed locally: MSI $($result.msiSha256); portable $($result.portableSha256). No artifact uploaded."

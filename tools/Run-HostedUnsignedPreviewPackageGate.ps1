@@ -113,7 +113,7 @@ if ($manifest.fileCount -ne 58 -or
     -ExpectedReviewedFfmpegManifestSha256 $record.manifestSha256 `
     -ReviewedFfmpegRuntimeDirectory $mediaRoot `
     -RuntimeRedistRoot $redist -ExpectedRuntimeVersion $RuntimeVersion `
-    -RuntimeCrtFamily VC143 -ReviewOnlyPrerelease -AcceptWixEula
+    -RuntimeCrtFamily VC143 -ReviewOnlyPrerelease -AcceptWixEula | Out-Null
 
 New-Item -ItemType Directory -Path $evidence -ErrorAction Stop | Out-Null
 $debugFile = Join-Path $artifact "$prefix.wixpdb"
