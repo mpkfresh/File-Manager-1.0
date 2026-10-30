@@ -186,6 +186,49 @@ jobs:
             Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output "Compiler-selected VC143 $version contains ten version-checked and hash-recorded DLLs."
 
+      - name: Restore the reviewed WiX 7 tool for V2 packaging
+        if: ${{ inputs.review_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = Join-Path $env:GITHUB_WORKSPACE '.config/dotnet-tools.json'
+          $manifestFile = Get-Item -LiteralPath $manifestPath -Force -ErrorAction Stop
+          if ($manifestFile -isnot [IO.FileInfo] -or
+              ($manifestFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'The reviewed WiX tool manifest is not an ordinary file.'
+          }
+          $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+          $toolNames = @($manifest.tools.PSObject.Properties.Name)
+          if ($manifest.version -ne 1 -or $manifest.isRoot -ne $true -or
+              $toolNames.Count -ne 1 -or $toolNames[0] -cne 'wix' -or
+              $manifest.tools.wix.version -cne '7.0.0' -or
+              @($manifest.tools.wix.commands).Count -ne 1 -or
+              $manifest.tools.wix.commands[0] -cne 'wix') {
+            throw 'The public source WiX tool manifest differs from the reviewed 7.0.0 command.'
+          }
+          $nugetConfig = Join-Path $env:RUNNER_TEMP 'filemanager-v2-nuget.config'
+          if (Test-Path -LiteralPath $nugetConfig) {
+            throw 'The V2 NuGet source configuration must use a fresh path.'
+          }
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+          </configuration>
+          '@ | Set-Content -LiteralPath $nugetConfig -Encoding utf8NoBOM
+          & dotnet tool restore --tool-manifest $manifestPath --configfile $nugetConfig --no-cache
+          if ($LASTEXITCODE -ne 0) { throw 'The reviewed WiX 7.0.0 tool did not restore.' }
+          $wixVersion = @(& dotnet tool run wix -- --version)
+          $matchingVersion = @($wixVersion | Where-Object {
+            $_.Trim() -cmatch '^7\.0\.0(?:\+[-.A-Za-z0-9]+)?$'
+          })
+          if ($LASTEXITCODE -ne 0 -or $matchingVersion.Count -ne 1) {
+            throw 'The restored WiX command does not report reviewed version 7.0.0.'
+          }
+          Write-Output 'Restored the single reviewed WiX 7.0.0 tool from nuget.org.'
+
       - name: Fetch and hash-pin the proposed Qt 6.11.2 MSVC 2022 kit
         run: |
           $ErrorActionPreference = 'Stop'
