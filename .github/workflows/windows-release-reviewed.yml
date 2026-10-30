@@ -95,11 +95,10 @@ jobs:
           }
           Write-Output 'Pinned Windows media build prerequisites are present.'
 
-      - name: Preflight pinned VC143 files for local V2 review
+      - name: Preflight compiler-selected VC143 files for local V2 review
         if: ${{ inputs.review_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = '14.44.35207'
           $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) `
             'Microsoft Visual Studio/Installer/vswhere.exe'
           $vsRoot = @(& $vswhere -latest -version '[17.0,18.0)' `
@@ -108,10 +107,51 @@ jobs:
           if ($LASTEXITCODE -or $vsRoot.Count -ne 1) {
             throw 'One Visual Studio 2022 C++ installation is required.'
           }
-          $redist = Join-Path $vsRoot[0] 'VC/Redist/MSVC'
-          $crt = Join-Path $redist "$version/x64/Microsoft.VC143.CRT"
+          $vcvars = Join-Path $vsRoot[0] 'VC/Auxiliary/Build/vcvars64.bat'
+          if (-not (Test-Path -LiteralPath $vcvars -PathType Leaf)) {
+            throw 'The pinned MSVC environment initializer is absent.'
+          }
+          $probe = Join-Path $env:RUNNER_TEMP 'filemanager-v2-vc143-probe.cmd'
+          if (Test-Path -LiteralPath $probe) {
+            throw 'The VC143 environment probe must use a fresh path.'
+          }
+          @(
+            '@echo off',
+            "call `"$vcvars`" -vcvars_ver=14.44.35207 >nul",
+            'if errorlevel 1 exit /b 11',
+            'echo VCToolsRedistDir=%VCToolsRedistDir%'
+          ) | Set-Content -LiteralPath $probe -Encoding ascii
+          $probeOutput = @(& cmd.exe /d /c $probe)
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The pinned MSVC environment did not initialize.'
+          }
+          $selection = @($probeOutput | Where-Object {
+            $_ -clike 'VCToolsRedistDir=*'
+          })
+          if ($selection.Count -ne 1) {
+            throw 'The pinned MSVC environment did not select one VC143 directory.'
+          }
+          $redist = [IO.Path]::GetFullPath(
+            (Join-Path $vsRoot[0] 'VC/Redist/MSVC')).TrimEnd('\')
+          $selected = [IO.Path]::GetFullPath(
+            $selection[0].Substring('VCToolsRedistDir='.Length)).TrimEnd('\')
+          if ([IO.Path]::GetDirectoryName($selected) -ine $redist) {
+            throw 'The compiler-selected VC143 directory is outside Visual Studio.'
+          }
+          $version = [IO.Path]::GetFileName($selected)
+          if ($version -cnotmatch '^14\.44\.[0-9]+$') {
+            throw 'The compiler-selected VC143 version differs from the reviewed toolset family.'
+          }
+          $crt = Join-Path $selected 'x64/Microsoft.VC143.CRT'
           if (-not (Test-Path -LiteralPath $crt -PathType Container)) {
-            throw 'Pinned VC143 redistribution files are absent; review the runner input before building.'
+            throw 'The compiler-selected VC143 redistribution files are absent.'
+          }
+          foreach ($directory in @($redist, $selected, $crt)) {
+            $item = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+            if ($item -isnot [IO.DirectoryInfo] -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw 'The compiler-selected VC143 directory is unsafe.'
+            }
           }
           . ./packaging/PayloadInventory.ps1
           $names = @(Get-FileManagerRuntimeNames -ProductVersion '1.0.0')
@@ -125,7 +165,16 @@ jobs:
                 ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
               throw 'The pinned VC143 runtime contains an unsafe file.'
             }
+            $fileVersion = [version]::new(
+              $item.VersionInfo.FileMajorPart,
+              $item.VersionInfo.FileMinorPart,
+              $item.VersionInfo.FileBuildPart,
+              $item.VersionInfo.FilePrivatePart)
+            if ($fileVersion -lt [version]'14.44.35207.0') {
+              throw 'A compiler-selected VC143 DLL predates the pinned toolset.'
+            }
             [ordered]@{ name=$name; bytes=$item.Length;
+              fileVersion=$fileVersion.ToString();
               sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
           }
           [ordered]@{ version=$version; files=@($files) } |
@@ -135,7 +184,7 @@ jobs:
             Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           "FILE_MANAGER_VC_REDIST_VERSION=$version" |
             Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Output 'Pinned VC143 redistribution input is present and hash-recorded locally.'
+          Write-Output "Compiler-selected VC143 $version contains ten version-checked and hash-recorded DLLs."
 
       - name: Fetch and hash-pin the proposed Qt 6.11.2 MSVC 2022 kit
         run: |
