@@ -139,16 +139,17 @@ if ($artifactItems.Count -ne 3) {
     throw 'The upload directory must contain exactly three review assets.'
 }
 $artifactTotalBytes = [long]0
+$maxArtifactBytes = [long]134217728
 foreach ($item in $artifactItems) {
     if ($item -isnot [IO.FileInfo] -or $item.Name -cnotin $allowedNames -or
             ($item.Attributes -band ([IO.FileAttributes]::ReparsePoint -bor
                 [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System)) -ne 0) {
         throw 'The upload directory contains an unapproved or unsafe item.'
     }
-    $artifactTotalBytes = [Math]::Add($artifactTotalBytes, [long]$item.Length)
-}
-if ($artifactTotalBytes -gt 134217728) {
-    throw 'The three review assets exceed the approved 128 MiB upload ceiling.'
+    if ($item.Length -gt ($maxArtifactBytes - $artifactTotalBytes)) {
+        throw 'The three review assets exceed the approved 128 MiB upload ceiling.'
+    }
+    $artifactTotalBytes += [long]$item.Length
 }
 $privacyArgs = @((Join-Path $root 'tools\Check-ReleaseArtifactPrivacy.py'),
     '--payload-root', $stage, '--payload-manifest', $payloadManifest,
