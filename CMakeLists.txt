@@ -670,6 +670,15 @@ if(WIN32)
     endif()
     set(FILE_MANAGER_WINDEPLOYQT_OPTIONS --no-translations --compiler-runtime
         --exclude-plugins qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql)
+    # Multiple POST_BUILD deployments write the same Release directory. MSBuild
+    # may run those projects concurrently, so serialize only the Qt copy step.
+    # Keep the lock outside Release so it cannot enter the packaged payload.
+    string(JOIN "+" FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG
+        ${FILE_MANAGER_WINDEPLOYQT_OPTIONS})
+    set(FILE_MANAGER_WINDEPLOYQT_LOCK
+        "${CMAKE_CURRENT_BINARY_DIR}/windeployqt.lock")
+    set(FILE_MANAGER_WINDEPLOYQT_SCRIPT
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/Run-SerializedQtDeployment.cmake")
     # Keep the verbatim reviewed Qt license in source so relocated Qt kits
     # deploy the same notice without depending on an installer's parent tree.
     set(FILE_MANAGER_QT_LICENSE_FILE
@@ -678,8 +687,12 @@ if(WIN32)
         message(FATAL_ERROR "The reviewed Qt license notice is missing.")
     endif()
     add_custom_command(TARGET FileManager POST_BUILD
-        COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-            "$<TARGET_FILE:FileManager>"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+            "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+            "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+            "-DDEPLOY_TARGET=$<TARGET_FILE:FileManager>"
+            -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
         COMMAND "${CMAKE_COMMAND}" -E rm -f
             "$<TARGET_FILE_DIR:FileManager>/sqldrivers/qsqlibase.dll"
             "$<TARGET_FILE_DIR:FileManager>/sqldrivers/qsqlmimer.dll"
@@ -727,33 +740,61 @@ if(WIN32)
             "$<TARGET_FILE_DIR:FileManager>/sbom/qtsvg-6.11.2.cdx.json"
         VERBATIM)
     add_custom_command(TARGET FileManagerPreviewHost POST_BUILD
-        COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-            "$<TARGET_FILE:FileManagerPreviewHost>"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+            "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+            "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+            "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerPreviewHost>"
+            -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
         VERBATIM)
     if(FILE_MANAGER_BUILD_TESTS)
         add_custom_command(TARGET FileManagerIconRenderingTests POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-                "$<TARGET_FILE:FileManagerIconRenderingTests>"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+                "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+                "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+                "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerIconRenderingTests>"
+                -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
             VERBATIM)
         add_custom_command(TARGET FileManagerIconSchedulerTests POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-                "$<TARGET_FILE:FileManagerIconSchedulerTests>"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+                "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+                "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+                "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerIconSchedulerTests>"
+                -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
             VERBATIM)
         add_custom_command(TARGET FileManagerWorkspaceTests POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-                "$<TARGET_FILE:FileManagerWorkspaceTests>"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+                "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+                "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+                "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerWorkspaceTests>"
+                -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
             VERBATIM)
         add_custom_command(TARGET FileManagerWorkspaceRestoreTests POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-                "$<TARGET_FILE:FileManagerWorkspaceRestoreTests>"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+                "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+                "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+                "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerWorkspaceRestoreTests>"
+                -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
             VERBATIM)
         add_custom_command(TARGET FileManagerKeyboardTests POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-                "$<TARGET_FILE:FileManagerKeyboardTests>"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+                "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+                "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+                "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerKeyboardTests>"
+                -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
             VERBATIM)
         add_custom_command(TARGET FileManagerVisualTests POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${FILE_MANAGER_WINDEPLOYQT_OPTIONS}
-                "$<TARGET_FILE:FileManagerVisualTests>"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DDEPLOY_TOOL=${WINDEPLOYQT_EXECUTABLE}"
+                "-DDEPLOY_OPTIONS=${FILE_MANAGER_WINDEPLOYQT_OPTIONS_ARG}"
+                "-DDEPLOY_LOCK=${FILE_MANAGER_WINDEPLOYQT_LOCK}"
+                "-DDEPLOY_TARGET=$<TARGET_FILE:FileManagerVisualTests>"
+                -P "${FILE_MANAGER_WINDEPLOYQT_SCRIPT}"
             VERBATIM)
     endif()
 endif()
