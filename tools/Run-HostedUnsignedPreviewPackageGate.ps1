@@ -166,8 +166,52 @@ foreach ($cue in $cues) {
         $privacyArgs += @('--forbidden-cue', $cue)
     }
 }
-& python @privacyArgs | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'The exact-artifact privacy gate did not pass.' }
+$privacyErrorPath = Join-Path $evidence 'privacy-stderr.txt'
+& python @privacyArgs 2> $privacyErrorPath | Out-Null
+$privacyExit = $LASTEXITCODE
+if ($privacyExit -ne 0) {
+    # The private report stays on the runner. Print only bounded identifiers and
+    # cue indexes so a failed hosted check can be diagnosed without exposing a
+    # path, user name, cue value, or any file contents in public job logs.
+    $privacyReport = Join-Path $evidence 'privacy.json'
+    if ($privacyExit -eq 1 -and (Test-Path -LiteralPath $privacyReport -PathType Leaf)) {
+        try {
+            $blocked = Get-Content -Raw -LiteralPath $privacyReport |
+                ConvertFrom-Json -AsHashtable
+            if ($blocked.status -ceq 'blocked' -and
+                    $blocked.cueLabelsAndCountsOnly.Count -le 61) {
+                $safeEntries = @()
+                foreach ($finding in $blocked.cueLabelsAndCountsOnly.GetEnumerator()) {
+                    $relativeName = [string]$finding.Key
+                    $idBytes = [Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($relativeName))
+                    $safeCues = [ordered]@{}
+                    foreach ($cue in $finding.Value.GetEnumerator()) {
+                        if ($cue.Key -cmatch '^cue-[1-9][0-9]*/(utf-8|utf-16le)$' -and
+                                [long]$cue.Value -gt 0) {
+                            $safeCues[$cue.Key] = [long]$cue.Value
+                        }
+                    }
+                    $safeEntries += [ordered]@{
+                        fileId = [Convert]::ToHexString($idBytes).Substring(0, 16)
+                        kind = if ($relativeName.StartsWith('artifact/')) {
+                            'artifact'
+                        } else { 'payload' }
+                        cues = $safeCues
+                    }
+                }
+                $safeSummary = [ordered]@{
+                    flaggedFileCount = $safeEntries.Count
+                    findings = $safeEntries
+                } | ConvertTo-Json -Depth 5 -Compress
+                Write-Host "Privacy gate blocked; safe cue summary: $safeSummary"
+            }
+        } catch {
+            Write-Host 'Privacy gate blocked; its bounded summary was unavailable.'
+        }
+    }
+    throw 'The exact-artifact privacy gate did not pass.'
+}
 
 [pscustomobject]@{
     status = 'local-review-only'
