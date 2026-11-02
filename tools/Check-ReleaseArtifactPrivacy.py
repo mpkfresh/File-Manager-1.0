@@ -88,6 +88,8 @@ def main() -> int:
                         help="Exact allowed NAME=SHA256; may be repeated")
     parser.add_argument("--forbidden-cue", action="append", default=[],
                         help="Private literal to reject; never printed")
+    parser.add_argument("--observed-build-cue", action="append", default=[],
+                        help="Verified CI build-location literal to report without blocking; never printed")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
 
@@ -148,12 +150,16 @@ def main() -> int:
             raise ValueError("An allowed artifact is linked or differs from its SHA-256")
 
     findings: dict[str, dict[str, int]] = {}
+    observed_build_paths: dict[str, dict[str, int]] = {}
     for name, path in list(actual_payload.items()) + [
         (f"artifact/{name}", path) for name, path in actual_assets.items()
     ]:
         matches = cue_matches(path, args.forbidden_cue)
         if matches:
             findings[name] = matches
+        observed = cue_matches(path, args.observed_build_cue)
+        if observed:
+            observed_build_paths[name] = observed
     report = {
         "status": "blocked" if findings else "passed",
         "payloadCount": len(actual_payload),
@@ -161,12 +167,15 @@ def main() -> int:
         "manifestSha256": args.manifest_sha256.upper(),
         "cueCount": len(args.forbidden_cue),
         "cueLabelsAndCountsOnly": findings,
+        "observedBuildCueCount": len(args.observed_build_cue),
+        "observedBuildCueLabelsAndCountsOnly": observed_build_paths,
         "uploaded": False,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": report["status"], "payloadCount": len(actual_payload),
                       "artifactCount": len(actual_assets), "flaggedFiles": len(findings),
+                      "observedBuildFiles": len(observed_build_paths),
                       "reportSha256": digest(args.report)}))
     return 1 if findings else 0
 

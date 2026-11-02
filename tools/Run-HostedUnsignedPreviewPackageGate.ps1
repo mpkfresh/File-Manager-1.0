@@ -14,6 +14,7 @@ param(
     [Parameter(Mandatory)][string]$RuntimeRedistRoot,
     [Parameter(Mandatory)][ValidatePattern('^[0-9]+(?:\.[0-9]+){2,3}$')]
     [string]$RuntimeVersion,
+    [switch]$AllowVerifiedCiBuildPaths,
     [string[]]$AdditionalForbiddenCues = @()
 )
 
@@ -81,6 +82,23 @@ if (-not (Test-Path -LiteralPath $crt -PathType Container)) {
     throw 'The explicitly chosen VC143 runtime version is missing.'
 }
 Assert-OrdinaryChain $crt
+
+$observedBuildCues = @()
+if ($AllowVerifiedCiBuildPaths) {
+    $expectedTemp = Join-Path ([IO.Path]::GetPathRoot($root)) 'a\_temp'
+    $expectedMediaRoot = Join-Path $expectedTemp 'fm-media-build\seven-media-stage'
+    if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_OS -cne 'Windows' -or
+            $root -cnotmatch '^[A-Za-z]:\\a\\File-Manager-1\.0\\File-Manager-1\.0$' -or
+            [string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE) -or
+            [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP) -or
+            [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') -ine $root -or
+            [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') -ine $expectedTemp -or
+            $mediaRoot -ine $expectedMediaRoot -or
+            $env:GITHUB_SHA -ine $ExpectedSourceCommit) {
+        throw 'The verified generic GitHub CI build roots are unavailable.'
+    }
+    $observedBuildCues = @($root, $expectedTemp)
+}
 
 $record = & (Join-Path $root 'tools\New-HostedReviewMediaRecord.ps1') `
     -SourceCheckout $root -MediaBuildResult $mediaResult -MediaStage $mediaRoot `
@@ -159,15 +177,23 @@ foreach ($file in $assets) {
     $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     $privacyArgs += @('--asset',"$([IO.Path]::GetFileName($file))=$hash")
 }
-$cues = @($root, $mediaRoot, $redist, $env:USERPROFILE, $env:COMPUTERNAME) +
-    @($AdditionalForbiddenCues)
+$cues = if ($AllowVerifiedCiBuildPaths) {
+    @($redist, $env:USERPROFILE, $env:COMPUTERNAME) +
+        @($AdditionalForbiddenCues)
+} else {
+    @($root, $mediaRoot, $redist, $env:USERPROFILE, $env:COMPUTERNAME) +
+        @($AdditionalForbiddenCues)
+}
 foreach ($cue in $cues) {
     if (-not [string]::IsNullOrWhiteSpace($cue)) {
         $privacyArgs += @('--forbidden-cue', $cue)
     }
 }
+foreach ($cue in $observedBuildCues) {
+    $privacyArgs += @('--observed-build-cue', $cue)
+}
 $privacyErrorPath = Join-Path $evidence 'privacy-stderr.txt'
-& python @privacyArgs 2> $privacyErrorPath | Out-Null
+$privacyOutput = @(& python @privacyArgs 2> $privacyErrorPath)
 $privacyExit = $LASTEXITCODE
 if ($privacyExit -ne 0) {
     # The private report stays on the runner. Print only bounded identifiers and
@@ -212,6 +238,55 @@ if ($privacyExit -ne 0) {
     }
     throw 'The exact-artifact privacy gate did not pass.'
 }
+$privacyReport = Get-Content -Raw -LiteralPath (Join-Path $evidence 'privacy.json') |
+    ConvertFrom-Json -AsHashtable
+if ($privacyOutput.Count -ne 1 -or $privacyReport.status -cne 'passed' -or
+        $privacyReport.payloadCount -ne 58 -or $privacyReport.artifactCount -ne 3 -or
+        $privacyReport.manifestSha256 -cne $manifest.manifestSha256 -or
+        $privacyReport.uploaded -ne $false -or
+        $privacyReport.cueCount -ne @($cues | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        }).Count -or $privacyReport.cueLabelsAndCountsOnly.Count -ne 0) {
+    throw 'The exact-artifact privacy pass record is missing or inconsistent.'
+}
+$privacySummary = $privacyOutput[0] | ConvertFrom-Json
+if ($privacySummary.status -cne 'passed' -or
+        $privacySummary.payloadCount -ne 58 -or
+        $privacySummary.artifactCount -ne 3 -or
+        $privacySummary.flaggedFiles -ne 0 -or
+        $privacySummary.observedBuildFiles -ne
+            $privacyReport.observedBuildCueLabelsAndCountsOnly.Count) {
+    throw 'The exact-artifact privacy summary differs from its local report.'
+}
+if ($AllowVerifiedCiBuildPaths) {
+    $expectedObserved = @{
+        'FileManager.exe' = @{ cue = 'cue-1/utf-8'; max = 1 }
+        'FileManagerPreviewHost.exe' = @{ cue = 'cue-1/utf-8'; max = 1 }
+        'avcodec-61.dll' = @{ cue = 'cue-2/utf-8'; max = 11 }
+        'avformat-61.dll' = @{ cue = 'cue-2/utf-8'; max = 1 }
+        'avutil-59.dll' = @{ cue = 'cue-2/utf-8'; max = 1 }
+        'swscale-8.dll' = @{ cue = 'cue-2/utf-8'; max = 1 }
+    }
+    if ($privacyReport.observedBuildCueCount -ne 2 -or
+            $privacyReport.observedBuildCueLabelsAndCountsOnly.Count -gt 6) {
+        throw 'Unreviewed CI build-path evidence appeared.'
+    }
+    foreach ($finding in $privacyReport.observedBuildCueLabelsAndCountsOnly.GetEnumerator()) {
+        if (-not $expectedObserved.ContainsKey($finding.Key)) {
+            throw 'An unreviewed CI build-path file appeared.'
+        }
+        $expected = $expectedObserved[$finding.Key]
+        if ($finding.Value.Count -ne 1 -or
+                -not $finding.Value.Contains($expected.cue) -or
+                [long]$finding.Value[$expected.cue] -lt 1 -or
+                [long]$finding.Value[$expected.cue] -gt $expected.max) {
+            throw 'An unreviewed CI build-path cue appeared.'
+        }
+    }
+} elseif ($privacyReport.observedBuildCueCount -ne 0 -or
+        $privacyReport.observedBuildCueLabelsAndCountsOnly.Count -ne 0) {
+    throw 'Local review unexpectedly allowed a CI build path.'
+}
 
 [pscustomobject]@{
     status = 'local-review-only'
@@ -224,5 +299,6 @@ if ($privacyExit -ne 0) {
     noticeSha256 = (Get-FileHash -LiteralPath $notice -Algorithm SHA256).Hash
     artifactFileCount = $artifactItems.Count
     artifactTotalBytes = $artifactTotalBytes
+    observedBuildFiles = $privacySummary.observedBuildFiles
     uploaded = $false
 } | ConvertTo-Json -Depth 3

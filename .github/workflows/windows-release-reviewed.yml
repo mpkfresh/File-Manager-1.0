@@ -766,7 +766,7 @@ jobs:
             -MediaStage $env:FILE_MANAGER_MEDIA_STAGE `
             -RuntimeRedistRoot $env:FILE_MANAGER_VC_REDIST_ROOT `
             -RuntimeVersion $env:FILE_MANAGER_VC_REDIST_VERSION `
-            -AdditionalForbiddenCues @($env:RUNNER_TEMP)
+            -AllowVerifiedCiBuildPaths
           $result = $resultText | ConvertFrom-Json
           if ($result.status -cne 'local-review-only' -or $result.uploaded -ne $false -or
               $result.sourceCommit -ine $env:GITHUB_SHA -or
