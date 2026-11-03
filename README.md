@@ -3,10 +3,10 @@
 **File Manager 1.0 is in release verification; no supported 1.0 binary has
 been published.** It is a Windows file manager written in C++20 and Qt 6.
 The source defaults to the proposed 1.0.0/Kiatami identity. The reviewed
-source passed a [hosted Windows build and affected tests](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/40676287316)
-without uploading binaries. Final package, signing, clean Windows and manual
-acceptance checks remain open. Locally prepared unsigned binaries are withheld
-from publication because they contain build paths.
+source passed the [V53 hosted Windows build and affected tests](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/41370308365).
+That run uploaded a bounded, unsigned review artifact for inspection. No
+GitHub Release or supported 1.0 binary has been published. Final source and
+rights review, signing, and acceptance checks remain open.
 
 It provides tabs, split panels, local and direct UNC browsing, file operations
 with preview and supported session Undo, on-demand search, previews, favorites,
@@ -67,8 +67,9 @@ updater. Content search and network discovery run when requested. Persistent
 indexing, workspace restoration, Windows Shell handlers, folder routing and
 Win+E integration start off. Read the [privacy policy](PRIVACY.md) for local
 storage, permissions and clearing. The [security policy](SECURITY.md) explains
-reporting status and supported-release limits. Do not attach private data to
-public issues.
+reporting status and supported-release limits. The [Code signing policy](CODE_SIGNING_POLICY.md)
+names the source, review and signing roles for the proposed release. Do not
+attach private data to public issues.
 
 ## Licenses and contribution
 

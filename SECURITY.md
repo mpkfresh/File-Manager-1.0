@@ -6,6 +6,8 @@ reporting is enabled for this public source repository. Reviewed release-page
 details are still required before publishing a signed 1.0 release. A separately
 reviewed unsigned prerelease, if approved, must
 be labeled unsigned and does not constitute 1.0 acceptance.
+The [Code signing policy](CODE_SIGNING_POLICY.md) names the owner-approved
+source, review and signing roles; no signing request has been made.
 
 ## Dependency and response policy
 
