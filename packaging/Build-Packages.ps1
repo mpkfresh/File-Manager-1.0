@@ -321,7 +321,8 @@ if ($ReviewOnlyPrerelease) { $writeTargets += $reviewNotice }
 foreach ($target in $writeTargets) {
     Assert-WorkspacePackagingTarget -Target $target -Workspace $workspace
 }
-$protectedRelease = $RequireSignedBinaries -or [bool]$ExpectedSignerThumbprint -or
+$protectedRelease = ([Version]$ProductVersion -ge [Version]'1.0.0') -or
+    $RequireSignedBinaries -or [bool]$ExpectedSignerThumbprint -or
     $ReviewOnlyPrerelease
 if ($protectedRelease) {
     $releaseTargets = @($stage)
@@ -330,12 +331,12 @@ if ($protectedRelease) {
     if ($ReviewOnlyPrerelease) { $releaseTargets += $reviewNotice }
     foreach ($target in $releaseTargets) {
         if (Test-Path -LiteralPath $target) {
-            throw "Signed packaging requires a fresh output path: $target"
+            throw "Protected packaging requires a fresh output path: $target"
         }
     }
 }
 if (Test-Path -LiteralPath $stage) {
-    if ($protectedRelease) { throw "Signed packaging requires a fresh output path: $stage" }
+    if ($protectedRelease) { throw "Protected packaging requires a fresh output path: $stage" }
     Assert-WorkspacePackagingTarget -Target $stage -Workspace $workspace
     Remove-Item -LiteralPath $stage -Recurse -Force
 }
@@ -461,7 +462,7 @@ if ($RequireSignedBinaries -or $ExpectedSignerThumbprint) {
 }
 if (-not $SkipZip) {
     if ($protectedRelease) {
-        if (Test-Path -LiteralPath $zip) { throw "Signed packaging requires a fresh output path: $zip" }
+        if (Test-Path -LiteralPath $zip) { throw "Protected packaging requires a fresh output path: $zip" }
     } else {
         Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
     }
@@ -470,11 +471,11 @@ if (-not $SkipZip) {
 
 if (-not $SkipMsi) {
     if ($protectedRelease -and (Test-Path -LiteralPath $payloadWxs)) {
-        throw "Signed packaging requires a fresh output path: $payloadWxs"
+        throw "Protected packaging requires a fresh output path: $payloadWxs"
     }
     New-WixPayloadFragment $stage $payloadWxs -ReviewOnlyPrerelease:$ReviewOnlyPrerelease
     if ($protectedRelease) {
-        if (Test-Path -LiteralPath $msi) { throw "Signed packaging requires a fresh output path: $msi" }
+        if (Test-Path -LiteralPath $msi) { throw "Protected packaging requires a fresh output path: $msi" }
     } else {
         Remove-Item -LiteralPath $msi -Force -ErrorAction SilentlyContinue
     }
