@@ -2,8 +2,8 @@ name: Reviewed Windows release build
 
 # Dispatch only after the owner approves the exact reviewed source commit and
 # the local source-manifest-to-commit guard has passed. This workflow never
-# signs or creates a release. Its optional unsigned-review upload is bounded
-# to three checked files; media outputs remain unapproved for the final 1.0.
+# signs or creates a release. The final unsigned package can be checked
+# without uploading it; either optional artifact upload has a fixed file list.
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +17,12 @@ on:
         default: false
         type: boolean
       prepare_final_unsigned_package:
-        description: Build and upload the bounded final-identity unsigned signing input
+        description: Build and check the final-identity unsigned signing input
+        required: true
+        default: false
+        type: boolean
+      upload_final_unsigned_package:
+        description: Upload the two checked final-identity unsigned files for one day
         required: true
         default: false
         type: boolean
@@ -46,6 +51,10 @@ jobs:
           if ('${{ inputs.review_unsigned_package }}' -ceq 'true' -and
               '${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
             throw 'Preview packaging and final unsigned signing input are mutually exclusive.'
+          }
+          if ('${{ inputs.upload_final_unsigned_package }}' -ceq 'true' -and
+              '${{ inputs.prepare_final_unsigned_package }}' -cne 'true') {
+            throw 'Final unsigned upload requires the final package gate.'
           }
 
       - name: Fetch only the reviewed public commit
@@ -830,7 +839,7 @@ jobs:
           Write-Output "Final unsigned signing input passed locally: media build $($result.mediaBuildResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
 
       - name: Upload two bounded unsigned signing-input files for one day
-        if: ${{ inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.prepare_final_unsigned_package && inputs.upload_final_unsigned_package }}
         id: upload_unsigned_signing_input
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
