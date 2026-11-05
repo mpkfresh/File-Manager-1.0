@@ -820,11 +820,14 @@ jobs:
               $result.sourceCommit -ine $env:GITHUB_SHA -or
               $result.approvedMediaManifestSha256 -ine
                 'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C' -or
+              $result.approvedProvenanceSha256 -ine
+                '47E9AE242D40614ECCD39441DC51C149A5CD33DB8DF1B348E9F334A493A6B57E' -or
+              $result.mediaBuildResultSha256 -cnotmatch '^[A-F0-9]{64}$' -or
               $result.artifactFileCount -ne 2 -or
               $result.artifactTotalBytes -gt 134217728) {
             throw 'The final unsigned signing-input gate did not return a bounded result.'
           }
-          Write-Output "Final unsigned signing input passed locally: MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
+          Write-Output "Final unsigned signing input passed locally: media build $($result.mediaBuildResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
 
       - name: Upload two bounded unsigned signing-input files for one day
         if: ${{ inputs.prepare_final_unsigned_package }}

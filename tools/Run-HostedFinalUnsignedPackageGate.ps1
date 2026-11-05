@@ -93,6 +93,7 @@ if ($resultItem -isnot [IO.FileInfo] -or
     throw 'The hosted media build result must be an ordinary file.'
 }
 $result = Get-Content -Raw -LiteralPath $mediaResultPath | ConvertFrom-Json
+$mediaBuildResultHash = (Get-FileHash -LiteralPath $mediaResultPath -Algorithm SHA256).Hash
 $recipeHash = (Get-FileHash -LiteralPath (Join-Path $root 'tools\Build-ReviewedMediaFromCompanion.ps1') -Algorithm SHA256).Hash
 if ($result.schema -cne 'file-manager-media-source-build-v1' -or
         $result.status -cne 'built-unreviewed' -or
@@ -106,7 +107,19 @@ if ($result.schema -cne 'file-manager-media-source-build-v1' -or
     throw 'The hosted media build result differs from approved V53 source inputs.'
 }
 $resultPaths = @($result.mediaFiles.PSObject.Properties.Name | Sort-Object)
-$stagePaths = @(Get-ChildItem -LiteralPath $mediaRoot -Recurse -File -Force |
+$stageItems = @(Get-ChildItem -LiteralPath $mediaRoot -Recurse -Force)
+if (@($stageItems | Where-Object {
+        ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        ($_ -isnot [IO.FileInfo] -and $_ -isnot [IO.DirectoryInfo])
+    }).Count -ne 0) {
+    throw 'The hosted media stage contains an unsafe item.'
+}
+$stageDirectories = @($stageItems | Where-Object { $_ -is [IO.DirectoryInfo] } |
+    ForEach-Object { [IO.Path]::GetRelativePath($mediaRoot, $_.FullName).Replace('\', '/') })
+if ($stageDirectories.Count -ne 1 -or $stageDirectories[0] -cne 'multimedia') {
+    throw 'The hosted media stage has unexpected directories.'
+}
+$stagePaths = @($stageItems | Where-Object { $_ -is [IO.FileInfo] } |
     ForEach-Object { [IO.Path]::GetRelativePath($mediaRoot, $_.FullName).Replace('\', '/') } |
     Sort-Object)
 $expectedPaths = @($approvedFiles.Keys | Sort-Object)
@@ -269,6 +282,8 @@ if ($AllowVerifiedCiBuildPaths) {
 [pscustomobject]@{
     status='unsigned-signing-input-local-only'; sourceCommit=$ExpectedSourceCommit.ToLowerInvariant()
     approvedMediaManifestSha256=$ExpectedApprovedMediaManifestSha256.ToUpperInvariant()
+    mediaBuildResultSha256=$mediaBuildResultHash
+    approvedProvenanceSha256=$approvedProvenanceHash
     payloadManifestSha256=$manifest.manifestSha256; appSha256=$manifest.appSha256
     msiSha256=(Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash
     portableSha256=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
