@@ -16,6 +16,11 @@ on:
         required: true
         default: false
         type: boolean
+      prepare_final_unsigned_package:
+        description: Build and upload the bounded final-identity unsigned signing input
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -37,6 +42,10 @@ jobs:
           }
           if ($env:GITHUB_SHA.ToLowerInvariant() -cne $env:APPROVED_COMMIT.ToLowerInvariant()) {
             throw 'The dispatched workflow revision differs from the reviewed commit.'
+          }
+          if ('${{ inputs.review_unsigned_package }}' -ceq 'true' -and
+              '${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
+            throw 'Preview packaging and final unsigned signing input are mutually exclusive.'
           }
 
       - name: Fetch only the reviewed public commit
@@ -96,7 +105,7 @@ jobs:
           Write-Output 'Pinned Windows media build prerequisites are present.'
 
       - name: Preflight compiler-selected VC143 files for local V2 review
-        if: ${{ inputs.review_unsigned_package }}
+        if: ${{ inputs.review_unsigned_package || inputs.prepare_final_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
           $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) `
@@ -187,7 +196,7 @@ jobs:
           Write-Output "Compiler-selected VC143 $version contains ten version-checked and hash-recorded DLLs."
 
       - name: Restore the reviewed WiX 7 tool for V2 packaging
-        if: ${{ inputs.review_unsigned_package }}
+        if: ${{ inputs.review_unsigned_package || inputs.prepare_final_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
           $manifestPath = Join-Path $env:GITHUB_WORKSPACE '.config/dotnet-tools.json'
@@ -786,6 +795,46 @@ jobs:
             out/v2-review-artifacts/FileManager-1.0.0-unsigned-review-windows-x64.msi
             out/v2-review-artifacts/FileManager-1.0.0-unsigned-review-windows-x64-portable.zip
             out/v2-review-artifacts/FileManager-1.0.0-unsigned-review-windows-x64-UNSIGNED-REVIEW-ONLY.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
+
+      - name: Build and verify the final-identity unsigned signing input
+        if: ${{ inputs.prepare_final_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $resultText = & ./tools/Run-HostedFinalUnsignedPackageGate.ps1 `
+            -SourceCheckout $env:GITHUB_WORKSPACE `
+            -ExpectedSourceCommit $env:GITHUB_SHA `
+            -ApprovedMediaManifest 'packaging/ffmpeg-1.0-v53-approved-input.json' `
+            -ExpectedApprovedMediaManifestSha256 'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C' `
+            -MediaBuildResult $env:FILE_MANAGER_MEDIA_RESULT `
+            -MediaStage $env:FILE_MANAGER_MEDIA_STAGE `
+            -RuntimeRedistRoot $env:FILE_MANAGER_VC_REDIST_ROOT `
+            -RuntimeVersion $env:FILE_MANAGER_VC_REDIST_VERSION `
+            -AllowVerifiedCiBuildPaths
+          $result = $resultText | ConvertFrom-Json
+          if ($result.status -cne 'unsigned-signing-input-local-only' -or
+              $result.uploaded -ne $false -or $result.signed -ne $false -or
+              $result.sourceCommit -ine $env:GITHUB_SHA -or
+              $result.approvedMediaManifestSha256 -ine
+                'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C' -or
+              $result.artifactFileCount -ne 2 -or
+              $result.artifactTotalBytes -gt 134217728) {
+            throw 'The final unsigned signing-input gate did not return a bounded result.'
+          }
+          Write-Output "Final unsigned signing input passed locally: MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
+
+      - name: Upload two bounded unsigned signing-input files for one day
+        if: ${{ inputs.prepare_final_unsigned_package }}
+        id: upload_unsigned_signing_input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: file-manager-1.0-unsigned-signing-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            out/v2-final-unsigned-artifacts/FileManager-1.0.0-release-windows-x64.msi
+            out/v2-final-unsigned-artifacts/FileManager-1.0.0-release-windows-x64-portable.zip
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
