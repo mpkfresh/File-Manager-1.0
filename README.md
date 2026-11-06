@@ -76,6 +76,8 @@ attach private data to public issues.
 The application source is under the [MIT License](LICENSE). Bundled components
 have separate obligations; see the [dependency inventory](docs/DEPENDENCIES.md)
 and [third-party notices](THIRD_PARTY_NOTICES.md).
+The seven public media DLLs have a [focused source bundle](packaging/v53-media-source.zip)
+and an [exact-hash provenance record](packaging/ffmpeg-1.0-v53-approved-input.json).
 The [brand asset guide](resources/branding/README.md) documents replacing the
 source logo and generating release icons. For a source change, keep UI code
 out of file/search/settings services, add an appropriate deterministic test
@@ -86,6 +88,6 @@ gate in an interactive Windows user session, since a restricted sandbox
 cannot exercise every Windows API. Clean-machine installed acceptance is
 also required before 1.0.
 
-This repository publishes development source, not an official binary download.
-No unsigned prerelease or signed 1.0 package has been published or authorized
-here.
+This repository publishes development source and reviewed media build inputs,
+but no official File Manager 1.0 app download. No unsigned prerelease or signed
+1.0 package has been published or authorized here.

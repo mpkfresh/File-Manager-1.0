@@ -38,8 +38,12 @@ It omits Qt's vendor Multimedia SBOM because that file names FFmpeg 7.1.3,
 while the proposed source-built libraries are 7.1.5. The project record is
 **not** a Qt-supplied SBOM. Component copyrights and licensing are described
 in [third-party notices](../THIRD_PARTY_NOTICES.md) and upstream source.
-The local source companion and provenance record are review candidates; no
-real seven-file manifest has been release-approved or placed in a package.
+The seven retained V53 media files are approved as **packaging inputs** and
+published with a [focused source bundle](../packaging/v53-media-source.zip)
+and [provenance manifest](../packaging/ffmpeg-1.0-v53-approved-input.json).
+The hosted final-identity unsigned package gate passed in
+[run 42157669514](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/42157669514),
+but its unsigned MSI and portable ZIP were not uploaded or retained.
 Complete corresponding source, modifications, build/relink instructions and
 remaining shipped-component attributions still need final distribution
 review. Qt [identifies](https://doc.qt.io/qt-6.11/windows-graphics.html)
