@@ -336,6 +336,7 @@ jobs:
           if ($mismatch) { throw 'Hosted Windows SDK shader bytes differ from the pinned V1 inputs.' }
 
       - name: Prepare pinned build-only Vulkan SDK
+        if: ${{ !inputs.prepare_final_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
           $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -404,6 +405,7 @@ jobs:
           Write-Output "Vulkan import library SHA-256 $libraryHash"
 
       - name: Rebuild the reviewed seven-file media candidate on the hosted runner
+        if: ${{ !inputs.prepare_final_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
           $toolRoot = Join-Path $env:RUNNER_TEMP 'fm-media-tools'
@@ -453,7 +455,29 @@ jobs:
             Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output 'Seven media candidate files built and hash-recorded on GitHub-hosted Windows; no package or artifact uploaded.'
 
-      - name: Compare rebuilt media with the V53 packaging approval
+      - name: Stage the seven exact V53 approved media inputs
+        if: ${{ inputs.prepare_final_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputRoot = Join-Path $env:RUNNER_TEMP 'fm-v53-approved-media-input'
+          $resultText = & ./tools/Stage-ApprovedV53MediaInputs.ps1 `
+            -ArchivePath 'packaging/v53-approved-media-inputs.zip' `
+            -ManifestPath 'packaging/ffmpeg-1.0-v53-approved-input.json' `
+            -OutputRoot $outputRoot
+          $result = $resultText | ConvertFrom-Json
+          if ($result.schema -cne 'file-manager-approved-retained-media-input-v1' -or
+              $result.status -cne 'approved-retained-input' -or
+              $result.packagingInputApproved -ne $true -or
+              @($result.mediaFiles.PSObject.Properties).Count -ne 7) {
+            throw 'The retained V53 media input did not stage exactly seven approved files.'
+          }
+          "FILE_MANAGER_MEDIA_STAGE=$(Join-Path $outputRoot 'seven-media-stage')" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FILE_MANAGER_MEDIA_RESULT=$(Join-Path $outputRoot 'reports/media-input-result.json')" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'Staged seven exact V53 approved media inputs from the pinned source archive; no new media build or upload.'
+
+      - name: Verify retained media against the V53 packaging approval
         if: ${{ inputs.prepare_final_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -464,6 +488,12 @@ jobs:
           }
           $approved = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
           $built = Get-Content -Raw -LiteralPath $env:FILE_MANAGER_MEDIA_RESULT | ConvertFrom-Json
+          if ($built.schema -cne 'file-manager-approved-retained-media-input-v1' -or
+              $built.status -cne 'approved-retained-input' -or
+              $built.inputArchiveSha256 -ine
+                '2D0D037BD8B6DB9E9D24A8EFA8FDDD0A7DED197E2041201E933044F1DB0DA588') {
+            throw 'The retained V53 media input record differs.'
+          }
           $expected = [ordered]@{}
           foreach ($name in @('avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll',
               'swresample-5.dll', 'swscale-8.dll')) {
@@ -485,7 +515,7 @@ jobs:
             }
             $actual = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
             if ($actual -ine [string]$built.mediaFiles.PSObject.Properties[$name].Value) {
-              throw 'The hosted media stage differs from its build record.'
+              throw 'The staged retained media differs from its input record.'
             }
             if ($actual -ine $expected[$name]) {
               $stream = [IO.File]::OpenRead($file.FullName)
@@ -510,13 +540,13 @@ jobs:
           if ($mismatches.Count -ne 0) {
             $summary = [ordered]@{
               mismatchCount=$mismatches.Count; files=@($mismatches)
-              ffmpegConfigureSha256=[string]$built.ffmpegConfigureSha256
-              vcToolsVersion=[string]$built.vcToolsVersion
+              inputArchiveSha256=[string]$built.inputArchiveSha256
+              sourceRunId=[int]$built.sourceRunId
             }
             Write-Output "Safe media mismatch summary: $($summary | ConvertTo-Json -Depth 5 -Compress)"
-            throw 'Rebuilt media differs from the V53 packaging approval; final packaging stopped.'
+            throw 'Retained media differs from the V53 packaging approval; final packaging stopped.'
           }
-          Write-Output 'All seven rebuilt media files match the V53 packaging approval.'
+          Write-Output 'All seven retained media files match the V53 packaging approval.'
 
       - name: Configure and build the reviewed Release preset
         run: |
@@ -678,20 +708,42 @@ jobs:
           }
           Write-Output "Qt deployment tool SHA-256 $toolHash"
 
-      - name: Overlay rebuilt media and run the affected V1 checks
+      - name: Stage the pinned Qt compressed-video fixture for retained media
+        if: ${{ inputs.prepare_final_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fixture = Join-Path $env:RUNNER_TEMP 'filemanager-qt-compressed-fixture.mp4'
+          $report = Join-Path $env:RUNNER_TEMP 'filemanager-qt-compressed-fixture.json'
+          & python ./tools/Stage-PinnedQtCompressedFixture.py `
+            --output $fixture --report $report
+          if ($LASTEXITCODE -ne 0 -or
+              (Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash -ine
+                '0593922D7CBFC91FC773940D00FFE32A060A83C8A1986B7BEDEF5EB3A74C5F39') {
+            throw 'The pinned Qt compressed-video fixture did not stage.'
+          }
+          Write-Output 'The official hash-pinned Qt compressed-video test fixture is ready; it is not packaged.'
+
+      - name: Overlay reviewed media and run the affected V1 checks
         run: |
           $ErrorActionPreference = 'Stop'
           $media = Get-Content -LiteralPath $env:FILE_MANAGER_MEDIA_RESULT -Raw |
             ConvertFrom-Json
-          if ($media.status -cne 'built-unreviewed' -or $media.releaseApproved -ne $false) {
-            throw 'Only a seven-file review candidate may enter this V1 runtime.'
+          if ('${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
+            if ($media.schema -cne 'file-manager-approved-retained-media-input-v1' -or
+                $media.status -cne 'approved-retained-input' -or
+                $media.packagingInputApproved -ne $true) {
+              throw 'Final V1 requires the seven retained approved V53 media inputs.'
+            }
+          } elseif ($media.status -cne 'built-unreviewed' -or
+                    $media.releaseApproved -ne $false) {
+            throw 'Preview V1 requires a seven-file unreviewed source-build candidate.'
           }
           $bin = 'out/build/windows-release-reviewed/Release'
           $mediaNames = @('avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll',
             'swresample-5.dll', 'swscale-8.dll', 'Qt6Multimedia.dll',
             'multimedia/ffmpegmediaplugin.dll')
           if (@($media.mediaFiles.PSObject.Properties).Count -ne $mediaNames.Count) {
-            throw 'The rebuilt media manifest is not exactly seven files.'
+            throw 'The media input record is not exactly seven files.'
           }
           foreach ($relative in $mediaNames) {
             $property = $media.mediaFiles.PSObject.Properties[$relative]
@@ -704,7 +756,7 @@ jobs:
             if ($sourceItem -isnot [IO.FileInfo] -or
                 ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
                 (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ine $property.Value) {
-              throw "The rebuilt media source differs: $relative"
+              throw "The reviewed media source differs: $relative"
             }
             Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
             $actual = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
@@ -725,7 +777,7 @@ jobs:
           }
           & ctest --test-dir out/build/windows-release-reviewed -C Release `
             --timeout 180 -R '^FileManagerCoreTests$'
-          if ($LASTEXITCODE) { throw 'Core check failed on the rebuilt-media runtime.' }
+          if ($LASTEXITCODE) { throw 'Core check failed on the reviewed-media runtime.' }
           foreach ($case in @(
             @{ name='FileManagerVisualTests'; argument='--invariants-only' },
             @{ name='FileManagerWorkspaceTests'; argument='--cloud-preview-only' },
@@ -757,7 +809,11 @@ jobs:
             }
             Write-Output "$label passed; raw stdout/stderr stay on the runner."
           }
-          $mp4 = Join-Path $env:RUNNER_TEMP 'fm-media-build/sources/qt/qtmultimedia-everywhere-src-6.11.2/tests/auto/integration/qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4'
+          $mp4 = if ('${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
+            Join-Path $env:RUNNER_TEMP 'filemanager-qt-compressed-fixture.mp4'
+          } else {
+            Join-Path $env:RUNNER_TEMP 'fm-media-build/sources/qt/qtmultimedia-everywhere-src-6.11.2/tests/auto/integration/qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4'
+          }
           $mp4Hash = '0593922D7CBFC91FC773940D00FFE32A060A83C8A1986B7BEDEF5EB3A74C5F39'
           if ((Get-FileHash -LiteralPath $mp4 -Algorithm SHA256).Hash -cne $mp4Hash) {
             throw 'The reviewed Qt compressed-video fixture differs.'
@@ -819,14 +875,14 @@ jobs:
           }
           foreach ($mediaEntry in $media.mediaFiles.PSObject.Properties) {
             if ($mediaEntry.Name -notin @($present | ForEach-Object { $_.path })) {
-              throw 'A rebuilt media file is absent from the V1 candidate.'
+              throw 'A reviewed media file is absent from the V1 candidate.'
             }
           }
           $record = [ordered]@{
             schema = 'file-manager-v1-local-handoff-candidate-v1'
             status = 'review-only'
             sourceCommit = $env:GITHUB_SHA
-            mediaBuildResultSha256 = (Get-FileHash -LiteralPath `
+            mediaInputResultSha256 = (Get-FileHash -LiteralPath `
               $env:FILE_MANAGER_MEDIA_RESULT -Algorithm SHA256).Hash
             presentFiles = $present.ToArray()
             missingReleasePaths = $missing.ToArray()
@@ -883,7 +939,8 @@ jobs:
             -ExpectedSourceCommit $env:GITHUB_SHA `
             -ApprovedMediaManifest 'packaging/ffmpeg-1.0-v53-approved-input.json' `
             -ExpectedApprovedMediaManifestSha256 'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C' `
-            -MediaBuildResult $env:FILE_MANAGER_MEDIA_RESULT `
+            -MediaInputResult $env:FILE_MANAGER_MEDIA_RESULT `
+            -ApprovedMediaArchive 'packaging/v53-approved-media-inputs.zip' `
             -MediaStage $env:FILE_MANAGER_MEDIA_STAGE `
             -RuntimeRedistRoot $env:FILE_MANAGER_VC_REDIST_ROOT `
             -RuntimeVersion $env:FILE_MANAGER_VC_REDIST_VERSION `
@@ -896,12 +953,14 @@ jobs:
                 'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C' -or
               $result.approvedProvenanceSha256 -ine
                 '47E9AE242D40614ECCD39441DC51C149A5CD33DB8DF1B348E9F334A493A6B57E' -or
-              $result.mediaBuildResultSha256 -cnotmatch '^[A-F0-9]{64}$' -or
+              $result.mediaInputResultSha256 -cnotmatch '^[A-F0-9]{64}$' -or
+              $result.approvedMediaArchiveSha256 -ine
+                '2D0D037BD8B6DB9E9D24A8EFA8FDDD0A7DED197E2041201E933044F1DB0DA588' -or
               $result.artifactFileCount -ne 2 -or
               $result.artifactTotalBytes -gt 134217728) {
             throw 'The final unsigned signing-input gate did not return a bounded result.'
           }
-          Write-Output "Final unsigned signing input passed locally: media build $($result.mediaBuildResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
+          Write-Output "Final unsigned signing input passed locally: retained media input $($result.mediaInputResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
 
       - name: Upload two bounded unsigned signing-input files for one day
         if: ${{ inputs.prepare_final_unsigned_package && inputs.upload_final_unsigned_package }}

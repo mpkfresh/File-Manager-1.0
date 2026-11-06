@@ -9,7 +9,8 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{40}$')][string]$ExpectedSourceCommit,
     [Parameter(Mandatory)][string]$ApprovedMediaManifest,
     [Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$ExpectedApprovedMediaManifestSha256,
-    [Parameter(Mandatory)][string]$MediaBuildResult,
+    [Parameter(Mandatory)][string]$MediaInputResult,
+    [Parameter(Mandatory)][string]$ApprovedMediaArchive,
     [Parameter(Mandatory)][string]$MediaStage,
     [Parameter(Mandatory)][string]$RuntimeRedistRoot,
     [Parameter(Mandatory)][ValidatePattern('^[0-9]+(?:\.[0-9]+){2,3}$')][string]$RuntimeVersion,
@@ -32,7 +33,8 @@ $evidence = Join-Path $root $evidenceRelative
 $msi = Join-Path $artifact "$prefix.msi"
 $zip = Join-Path $artifact "$prefix-portable.zip"
 $mediaRoot = [IO.Path]::GetFullPath($MediaStage).TrimEnd('\')
-$mediaResultPath = [IO.Path]::GetFullPath($MediaBuildResult)
+$mediaResultPath = [IO.Path]::GetFullPath($MediaInputResult)
+$mediaArchivePath = [IO.Path]::GetFullPath($ApprovedMediaArchive)
 $redist = [IO.Path]::GetFullPath($RuntimeRedistRoot).TrimEnd('\')
 
 function Assert-OrdinaryChain([string]$Path) {
@@ -52,11 +54,13 @@ function Assert-OrdinaryChain([string]$Path) {
 if ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\') -ine $root -or
         -not (Test-Path -LiteralPath (Join-Path $root $buildRelative) -PathType Container) -or
         -not (Test-Path -LiteralPath $mediaResultPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $mediaArchivePath -PathType Leaf) -or
         -not (Test-Path -LiteralPath $mediaRoot -PathType Container) -or
         -not (Test-Path -LiteralPath $redist -PathType Container)) {
     throw 'Final unsigned package requires the reviewed build, media and runtime.'
 }
-foreach ($path in @($root, (Join-Path $root $buildRelative), $mediaResultPath, $mediaRoot, $redist)) {
+foreach ($path in @($root, (Join-Path $root $buildRelative), $mediaResultPath,
+        $mediaArchivePath, $mediaRoot, $redist)) {
     Assert-OrdinaryChain $path
 }
 foreach ($path in @($manifestPath, $artifact, $stage, $evidence, (Join-Path $root $verifyRelative))) {
@@ -73,9 +77,13 @@ if ($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or
 }
 $approvedRelative = 'packaging/ffmpeg-1.0-v53-approved-input.json'
 $approvedHash = 'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C'
+$archiveRelative = 'packaging/v53-approved-media-inputs.zip'
+$archiveHash = '2D0D037BD8B6DB9E9D24A8EFA8FDDD0A7DED197E2041201E933044F1DB0DA588'
 if ($ApprovedMediaManifest -cne $approvedRelative -or
-        $ExpectedApprovedMediaManifestSha256 -ine $approvedHash) {
-    throw 'Final unsigned package requires the reviewed V53 media-input manifest.'
+        $ExpectedApprovedMediaManifestSha256 -ine $approvedHash -or
+        $mediaArchivePath -ine (Join-Path $root $archiveRelative) -or
+        (Get-FileHash -LiteralPath $mediaArchivePath -Algorithm SHA256).Hash -ine $archiveHash) {
+    throw 'Final unsigned package requires the reviewed V53 manifest and exact media archive.'
 }
 $approvedRecord = Get-Content -Raw -LiteralPath (Join-Path $root $approvedRelative) | ConvertFrom-Json
 $approvedFiles = [ordered]@{
@@ -90,21 +98,23 @@ $approvedFiles = [ordered]@{
 $resultItem = Get-Item -LiteralPath $mediaResultPath -Force
 if ($resultItem -isnot [IO.FileInfo] -or
         ($resultItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'The hosted media build result must be an ordinary file.'
+    throw 'The retained media input result must be an ordinary file.'
 }
 $result = Get-Content -Raw -LiteralPath $mediaResultPath | ConvertFrom-Json
-$mediaBuildResultHash = (Get-FileHash -LiteralPath $mediaResultPath -Algorithm SHA256).Hash
-$recipeHash = (Get-FileHash -LiteralPath (Join-Path $root 'tools\Build-ReviewedMediaFromCompanion.ps1') -Algorithm SHA256).Hash
-if ($result.schema -cne 'file-manager-media-source-build-v1' -or
-        $result.status -cne 'built-unreviewed' -or
-        $result.releaseApproved -ne $false -or $result.packageBuilt -ne $false -or
-        $result.sourceCompanionSha256 -ine '5123D85407AD0E077A627945E22F220F4D2778DEE1459C610ECB736BA7F66D13' -or
-        $result.ffmpegSourceSha256 -ine $approvedRecord.sourceArchiveSha256 -or
-        $result.qtMultimediaSourceSha256 -ine $approvedRecord.qtMultimediaSourceArchiveSha256 -or
-        $result.zlibSourceSha256 -ine '9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23' -or
-        $result.qtAttributionSha256 -ine $approvedRecord.qtMultimediaAttributionSha256 -or
-        $result.buildRecipeSha256 -ine $recipeHash) {
-    throw 'The hosted media build result differs from approved V53 source inputs.'
+$mediaInputResultHash = (Get-FileHash -LiteralPath $mediaResultPath -Algorithm SHA256).Hash
+if ($result.schema -cne 'file-manager-approved-retained-media-input-v1' -or
+        $result.status -cne 'approved-retained-input' -or
+        $result.packagingInputApproved -ne $true -or
+        $result.finalReleaseApproved -ne $false -or
+        $result.packageBuilt -ne $false -or $result.uploaded -ne $false -or
+        $result.sourceRunId -ne 41370308365 -or
+        $result.sourceCommit -cne $approvedRecord.sourceCommit -or
+        $result.sourceArtifactSha256 -ine
+            '1C0F6F177A1D8B26B7DFA3D03FFF84F4EC8325FE125D242032C2DF1976009511' -or
+        $result.inputArchiveSha256 -ine $archiveHash -or
+        $result.approvedManifestSha256 -ine $approvedHash -or
+        $result.mediaProvenanceSha256 -ine $approvedRecord.mediaProvenanceSha256) {
+    throw 'The retained V53 media-input record differs from its approved provenance.'
 }
 $resultPaths = @($result.mediaFiles.PSObject.Properties.Name | Sort-Object)
 $stageItems = @(Get-ChildItem -LiteralPath $mediaRoot -Recurse -Force)
@@ -131,7 +141,7 @@ foreach ($name in $approvedFiles.Keys) {
     if ($result.mediaFiles.PSObject.Properties[$name].Value -ine $approvedFiles[$name] -or
             (Get-FileHash -LiteralPath (Join-Path $mediaRoot $name.Replace('/', '\')) -Algorithm SHA256).Hash -ine
                 $approvedFiles[$name]) {
-        throw "The rebuilt hosted media bytes differ from the V53 approval: $name"
+        throw "The staged retained media bytes differ from the V53 approval: $name"
     }
 }
 $approvedProvenance = Join-Path $root 'packaging\media-provenance-v53-approved.json'
@@ -282,7 +292,8 @@ if ($AllowVerifiedCiBuildPaths) {
 [pscustomobject]@{
     status='unsigned-signing-input-local-only'; sourceCommit=$ExpectedSourceCommit.ToLowerInvariant()
     approvedMediaManifestSha256=$ExpectedApprovedMediaManifestSha256.ToUpperInvariant()
-    mediaBuildResultSha256=$mediaBuildResultHash
+    mediaInputResultSha256=$mediaInputResultHash
+    approvedMediaArchiveSha256=$archiveHash
     approvedProvenanceSha256=$approvedProvenanceHash
     payloadManifestSha256=$manifest.manifestSha256; appSha256=$manifest.appSha256
     msiSha256=(Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash
