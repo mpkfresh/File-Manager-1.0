@@ -453,6 +453,71 @@ jobs:
             Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output 'Seven media candidate files built and hash-recorded on GitHub-hosted Windows; no package or artifact uploaded.'
 
+      - name: Compare rebuilt media with the V53 packaging approval
+        if: ${{ inputs.prepare_final_unsigned_package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = 'packaging/ffmpeg-1.0-v53-approved-input.json'
+          if ((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash -ine
+              'AE68D738D51E7B5D07A68BDA0B07E85F33615B1192847BB68FE04CBC7F49E61C') {
+            throw 'The approved media manifest changed.'
+          }
+          $approved = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+          $built = Get-Content -Raw -LiteralPath $env:FILE_MANAGER_MEDIA_RESULT | ConvertFrom-Json
+          $expected = [ordered]@{}
+          foreach ($name in @('avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll',
+              'swresample-5.dll', 'swscale-8.dll')) {
+            $expected[$name] = [string]$approved.dlls.PSObject.Properties[$name].Value
+          }
+          $expected['Qt6Multimedia.dll'] = [string]$approved.qtMultimediaModuleSha256
+          $expected['multimedia/ffmpegmediaplugin.dll'] = [string]$approved.qtMediaPluginSha256
+          if ((@($built.mediaFiles.PSObject.Properties.Name | Sort-Object) -join '|') -cne
+              (@($expected.Keys | Sort-Object) -join '|')) {
+            throw 'The hosted media result has unexpected file names.'
+          }
+          $mismatches = [Collections.Generic.List[object]]::new()
+          foreach ($name in $expected.Keys) {
+            $file = Get-Item -LiteralPath (Join-Path $env:FILE_MANAGER_MEDIA_STAGE `
+              $name.Replace('/', '\')) -Force -ErrorAction Stop
+            if ($file -isnot [IO.FileInfo] -or
+                ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw 'A hosted media file is missing or reparse-backed.'
+            }
+            $actual = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            if ($actual -ine [string]$built.mediaFiles.PSObject.Properties[$name].Value) {
+              throw 'The hosted media stage differs from its build record.'
+            }
+            if ($actual -ine $expected[$name]) {
+              $stream = [IO.File]::OpenRead($file.FullName)
+              try {
+                $reader = [IO.BinaryReader]::new($stream)
+                $stream.Position = 0x3c
+                $peOffset = $reader.ReadInt32()
+                if ($peOffset -lt 0x40 -or $peOffset -gt $stream.Length - 12) {
+                  throw 'A rebuilt media file has an invalid PE header.'
+                }
+                $stream.Position = $peOffset + 8
+                $peTimestamp = ('{0:X8}' -f $reader.ReadUInt32())
+              } finally {
+                $stream.Dispose()
+              }
+              $mismatches.Add([ordered]@{
+                name=$name; approvedSha256=$expected[$name]; rebuiltSha256=$actual
+                bytes=[long]$file.Length; peTimestamp=$peTimestamp
+              })
+            }
+          }
+          if ($mismatches.Count -ne 0) {
+            $summary = [ordered]@{
+              mismatchCount=$mismatches.Count; files=@($mismatches)
+              ffmpegConfigureSha256=[string]$built.ffmpegConfigureSha256
+              vcToolsVersion=[string]$built.vcToolsVersion
+            }
+            Write-Output "Safe media mismatch summary: $($summary | ConvertTo-Json -Depth 5 -Compress)"
+            throw 'Rebuilt media differs from the V53 packaging approval; final packaging stopped.'
+          }
+          Write-Output 'All seven rebuilt media files match the V53 packaging approval.'
+
       - name: Configure and build the reviewed Release preset
         run: |
           $ErrorActionPreference = 'Stop'
