@@ -49,7 +49,7 @@ Project and licensing information: https://www.qt.io/licensing/open-source-lgpl-
 Qt identifies the `opengl32sw.dll` shipped in its prebuilt Windows packages
 as Mesa llvmpipe. Qt's 6.11.2 attribution lists MIT and Boost Software
 License 1.0 terms. This notice does not establish the source revision or
-build record for the exact DLL in File Manager's final package.
+build record for the exact DLL in this package.
 
 Copyright (C) 1999–2007 Brian Paul.
 
@@ -119,11 +119,10 @@ bundle at `packaging/v53-media-source.zip` in the public File Manager 1.0
 source repository. The package's `manifest/media-provenance.json` identifies
 the exact binaries to which that bundle applies.
 Source bundle: https://github.com/mpkfresh/File-Manager-1.0/blob/94e2648db4e6ede2be1c4473ad66bacece631a6b/packaging/v53-media-source.zip
-The final release page must provide the corresponding FFmpeg and Qt source,
+An official 1.0 release must link the corresponding FFmpeg and Qt source,
 actual modifications and build/relink instructions for these exact
 binaries. The Boost, IJG/zlib and Signalsmith notices below also apply
-where their code is present. Exact source delivery and final package bytes
-remain subject to the release review.
+where their code is present.
 
 Project and source information: https://ffmpeg.org/
 Qt 6.11.2 attribution: https://doc.qt.io/qt-6.11/qtmultimedia-attribution-ffmpeg.html

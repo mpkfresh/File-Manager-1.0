@@ -1,16 +1,14 @@
 # Security policy
 
 The project's [GitHub Releases page](https://github.com/mpkfresh/File-Manager-1.0/releases)
-identifies any supported File Manager release. Source checkouts and unsigned
-review artifacts are development materials; do not distribute them as a
-supported 1.0 release. Private vulnerability reporting is enabled for this
-public source repository. The planned 1.0 MSI and portable ZIP have no
-publisher signature. Source, redistribution rights, exact-package checks and
-acceptance must pass before release approval. A review artifact does not
-establish 1.0 acceptance.
+identifies supported File Manager downloads. Source checkouts and unsigned
+review artifacts are development materials, not supported releases. File
+Manager 1.0's MSI and portable ZIP are unsigned: they do not cryptographically
+verify a publisher. Compare their SHA-256 values with the official release
+page. Private vulnerability reporting is enabled for this public repository.
 
-The [Code signing policy](https://github.com/mpkfresh/File-Manager-1.0/blob/main/CODE_SIGNING_POLICY.md) names the owner-approved
-source, review and signing roles; no signing request has been made.
+The [Code signing policy](https://github.com/mpkfresh/File-Manager-1.0/blob/main/CODE_SIGNING_POLICY.md)
+names the source, review and signing roles for any future signed release.
 
 ## Dependency and response policy
 
@@ -25,13 +23,12 @@ malformed and untrusted-input cases, plus package and clean-machine acceptance b
 Full built-in file-content previews and image thumbnails run outside the main process. On Windows
 the preview broker passes one read-only inherited source handle to a zero-capability AppContainer
 and applies kill-on-close, one-process and 768 MiB Job Object limits. There is no unsandboxed
-production fallback for those previews. The current working development build also sends image
-dimensions and PDF, RTF and Office document metadata through handle-only modes of that restricted
-helper; affected development checks and the hosted V1 build passed on this
-source. Folder previews count entries in the main process. Registered
+production fallback for those previews. File Manager also sends image
+dimensions and PDF, RTF and Office document metadata through handle-only
+modes of that restricted helper. Folder previews count entries in the main process. Registered
 third-party Shell metadata and context handlers remain behind independent
-default-off permissions. Exact-byte package, native and installed acceptance
-for the final 1.0 release remains open.
+default-off permissions. Each release must pass exact-byte package, native and
+installed acceptance checks.
 
 File Manager has no automatic updater. Security fixes for a supported release
 will be distributed as complete reviewed packages from the official release
