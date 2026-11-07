@@ -114,6 +114,11 @@ AVDevice and AVFilter modes disabled, and zlib enabled. The package does
 not deploy an OpenSSL backend.
 The release payload contract includes the full LGPLv2.1 text at
 `licenses/FFmpeg-LGPL-2.1.txt`.
+The seven media binaries have a reviewed source, modification and build-guide
+bundle at `packaging/v53-media-source.zip` in the public File Manager 1.0
+source repository. The package's `manifest/media-provenance.json` identifies
+the exact binaries to which that bundle applies.
+Source bundle: https://github.com/mpkfresh/File-Manager-1.0/blob/94e2648db4e6ede2be1c4473ad66bacece631a6b/packaging/v53-media-source.zip
 The final release page must provide the corresponding FFmpeg and Qt source,
 actual modifications and build/relink instructions for these exact
 binaries. The Boost, IJG/zlib and Signalsmith notices below also apply
@@ -161,8 +166,9 @@ Qt attributes modified IJG code in FFmpeg to Thomas G. Lane and Guido
 Vollbeding (1991–2020), and Adler-32 code to Jean-loup Gailly and Mark Adler
 (1995–2022). The IJG acknowledgement in the JPEG section below also applies
 to this FFmpeg code. The zlib license terms are reproduced in the zlib-ng
-section below. The final source offer must identify Qt's modifications to
-the FFmpeg/IJG code.
+section below. The final source offer must include the matching FFmpeg source
+for these IJG-derived files and identify their modifications against IJG;
+Qt points to FFmpeg's source history for those changes.
 Qt 6.11.2 attributions:
 https://doc.qt.io/qt-6.11/qtmultimedia-attribution-ffmpeg-libjpeg.html and
 https://doc.qt.io/qt-6.11/qtmultimedia-attribution-ffmpeg-zlib.html

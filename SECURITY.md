@@ -1,12 +1,15 @@
 # Security policy
 
-File Manager is still a pre-1.0 development build and is not yet offered as a supported public
-release. Do not redistribute it as a stable product. Private vulnerability
-reporting is enabled for this public source repository. Reviewed release-page
-details are still required before publishing a signed 1.0 release. A separately
-reviewed unsigned prerelease, if approved, must
-be labeled unsigned and does not constitute 1.0 acceptance.
-The [Code signing policy](CODE_SIGNING_POLICY.md) names the owner-approved
+The project's [GitHub Releases page](https://github.com/mpkfresh/File-Manager-1.0/releases)
+identifies any supported File Manager release. Source checkouts and unsigned
+review artifacts are development materials; do not distribute them as a
+supported 1.0 release. Private vulnerability reporting is enabled for this
+public source repository. The planned 1.0 MSI and portable ZIP have no
+publisher signature. Source, redistribution rights, exact-package checks and
+acceptance must pass before release approval. A review artifact does not
+establish 1.0 acceptance.
+
+The [Code signing policy](https://github.com/mpkfresh/File-Manager-1.0/blob/main/CODE_SIGNING_POLICY.md) names the owner-approved
 source, review and signing roles; no signing request has been made.
 
 ## Dependency and response policy
@@ -30,17 +33,16 @@ third-party Shell metadata and context handlers remain behind independent
 default-off permissions. Exact-byte package, native and installed acceptance
 for the final 1.0 release remains open.
 
-File Manager has no automatic updater. Once a signed 1.0 release exists, security fixes will be
-distributed as complete reviewed packages from the official release page. Any separately approved
-unsigned prerelease must be conspicuously labeled unsigned and may be replaced with a complete,
-clearly labeled package before signing is available. File Manager never downloads or executes an
-update in the background.
+File Manager has no automatic updater. Security fixes for a supported release
+will be distributed as complete reviewed packages from the official release
+page. Any unsigned package must be clearly labeled; a future signed build
+requires separate review. File Manager never downloads or executes an update
+in the background.
 
 ## Reporting
 
 Do not attach private filenames, paths, document contents, crash dumps or unredacted diagnostics to
 a public issue. For a private report, use this repository's Security → Advisories →
-Report a vulnerability control. GitHub now exposes that form publicly, though File Manager
-has no supported 1.0 release yet. Redacted diagnostic JSON can be
+Report a vulnerability control. GitHub exposes that form publicly. Redacted diagnostic JSON can be
 reviewed before sharing; paths are structurally absent unless the separate default-off inclusion
 control is explicitly enabled.

@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 Create and verify a final-identity unsigned 1.0 MSI and portable ZIP as
-signing inputs. This script does not upload, sign, install or publish them.
+release candidates. This script does not upload, sign, install or publish them.
 #>
 [CmdletBinding()]
 param(
@@ -271,23 +271,23 @@ if ($AllowVerifiedCiBuildPaths) {
     }
     if ($privacy.observedBuildCueCount -ne 2 -or
             $privacy.observedBuildCueLabelsAndCountsOnly.Count -gt 6) {
-        throw 'Unreviewed CI build-path evidence appeared in final signing input.'
+        throw 'Unreviewed CI build-path evidence appeared in the unsigned release candidate.'
     }
     foreach ($finding in $privacy.observedBuildCueLabelsAndCountsOnly.GetEnumerator()) {
         if (-not $expectedObserved.ContainsKey($finding.Key)) {
-            throw 'An unreviewed CI build-path file appeared in final signing input.'
+            throw 'An unreviewed CI build-path file appeared in the unsigned release candidate.'
         }
         $expected = $expectedObserved[$finding.Key]
         if ($finding.Value.Count -ne 1 -or
                 -not $finding.Value.Contains($expected.cue) -or
                 [long]$finding.Value[$expected.cue] -lt 1 -or
                 [long]$finding.Value[$expected.cue] -gt $expected.max) {
-            throw 'An unreviewed CI build-path cue appeared in final signing input.'
+            throw 'An unreviewed CI build-path cue appeared in the unsigned release candidate.'
         }
     }
 } elseif ($privacy.observedBuildCueCount -ne 0 -or
         $privacy.observedBuildCueLabelsAndCountsOnly.Count -ne 0) {
-    throw 'Local final signing input unexpectedly allowed a CI build path.'
+    throw 'The local unsigned release candidate unexpectedly allowed a CI build path.'
 }
 [pscustomobject]@{
     status='unsigned-signing-input-local-only'; sourceCommit=$ExpectedSourceCommit.ToLowerInvariant()

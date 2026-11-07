@@ -521,7 +521,7 @@ if ($ReviewOnlyPrerelease) {
     $warning = @(
         'FILE MANAGER 1.0.0 — UNSIGNED REVIEW ONLY'
         'These MSI and portable files are unsigned prerelease review candidates.'
-        'They are not the signed 1.0 release and have not been approved for publication.'
+        'They are not the supported 1.0 release and have not been approved for publication.'
         'The preview MSI has its own install folder and must be uninstalled before the final MSI.'
         'Verify the exact SHA-256 hashes and review the contained files before any use.'
     ) -join "`r`n"

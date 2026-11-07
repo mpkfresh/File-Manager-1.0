@@ -6,7 +6,7 @@ The source defaults to the proposed 1.0.0/Kiatami identity. The reviewed
 source passed the [V53 hosted Windows build and affected tests](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/41370308365).
 That run uploaded a bounded, unsigned review artifact for inspection. No
 GitHub Release or supported 1.0 binary has been published. Final source and
-rights review, signing, and acceptance checks remain open.
+rights review, unsigned-package checks, and acceptance checks remain open.
 
 It provides tabs, split panels, local and direct UNC browsing, file operations
 with preview and supported session Undo, on-demand search, previews, favorites,
@@ -68,8 +68,8 @@ indexing, workspace restoration, Windows Shell handlers, folder routing and
 Win+E integration start off. Read the [privacy policy](PRIVACY.md) for local
 storage, permissions and clearing. The [security policy](SECURITY.md) explains
 reporting status and supported-release limits. The [Code signing policy](CODE_SIGNING_POLICY.md)
-names the source, review and signing roles for the proposed release. Do not
-attach private data to public issues.
+describes the planned unsigned 1.0 package and roles for any future signing.
+Do not attach private data to public issues.
 
 ## Licenses and contribution
 
@@ -89,5 +89,5 @@ cannot exercise every Windows API. Clean-machine installed acceptance is
 also required before 1.0.
 
 This repository publishes development source and reviewed media build inputs,
-but no official File Manager 1.0 app download. No unsigned prerelease or signed
-1.0 package has been published or authorized here.
+but no official File Manager 1.0 app download. No supported 1.0 package has
+been published or authorized here.

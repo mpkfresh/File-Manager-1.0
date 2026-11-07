@@ -1,13 +1,14 @@
 # Code signing policy
 
-File Manager 1.0 is in release review. No signed 1.0 package has been
-published. If the project is accepted for free open-source signing, the
-release page will identify the exact signed files and their SHA-256 values.
+File Manager 1.0 is in release review. The owner selected planning an
+explicitly unsigned MSI and portable ZIP for the first 1.0 release. No 1.0
+package has been approved for publication. The release page must identify
+the exact package hashes and state that no publisher signature is present.
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/terms.html).
-This is the proposed signing route; it does not claim that SignPath Foundation
-has accepted this project or signed an artifact.
+SignPath Foundation was evaluated but is not the selected 1.0 route. No
+SignPath application or signing request has been submitted. The requirements
+below apply if the owner later chooses to publish a signed version; they do
+not imply that the unsigned 1.0 packages have a verified publisher.
 
 ## Roles
 

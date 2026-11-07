@@ -17,7 +17,7 @@ on:
         default: false
         type: boolean
       prepare_final_unsigned_package:
-        description: Build and check the final-identity unsigned signing input
+        description: Build and check the unsigned 1.0 release candidate
         required: true
         default: false
         type: boolean
@@ -50,7 +50,7 @@ jobs:
           }
           if ('${{ inputs.review_unsigned_package }}' -ceq 'true' -and
               '${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
-            throw 'Preview packaging and final unsigned signing input are mutually exclusive.'
+            throw 'Preview packaging and the unsigned 1.0 release candidate are mutually exclusive.'
           }
           if ('${{ inputs.upload_final_unsigned_package }}' -ceq 'true' -and
               '${{ inputs.prepare_final_unsigned_package }}' -cne 'true') {
@@ -930,7 +930,7 @@ jobs:
           compression-level: 0
           include-hidden-files: false
 
-      - name: Build and verify the final-identity unsigned signing input
+      - name: Build and verify the unsigned 1.0 release candidate
         if: ${{ inputs.prepare_final_unsigned_package }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -958,16 +958,16 @@ jobs:
                 '2D0D037BD8B6DB9E9D24A8EFA8FDDD0A7DED197E2041201E933044F1DB0DA588' -or
               $result.artifactFileCount -ne 2 -or
               $result.artifactTotalBytes -gt 134217728) {
-            throw 'The final unsigned signing-input gate did not return a bounded result.'
+            throw 'The unsigned release-candidate gate did not return a bounded result.'
           }
-          Write-Output "Final unsigned signing input passed locally: retained media input $($result.mediaInputResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
+          Write-Output "Unsigned 1.0 release candidate passed locally: retained media input $($result.mediaInputResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
 
-      - name: Upload two bounded unsigned signing-input files for one day
+      - name: Upload two bounded unsigned release-candidate files for one day
         if: ${{ inputs.prepare_final_unsigned_package && inputs.upload_final_unsigned_package }}
         id: upload_unsigned_signing_input
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: file-manager-1.0-unsigned-signing-input-${{ github.run_id }}-${{ github.run_attempt }}
+          name: file-manager-1.0-unsigned-release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             out/v2-final-unsigned-artifacts/FileManager-1.0.0-release-windows-x64.msi
             out/v2-final-unsigned-artifacts/FileManager-1.0.0-release-windows-x64-portable.zip

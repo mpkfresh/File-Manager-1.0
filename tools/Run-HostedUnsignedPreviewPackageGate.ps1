@@ -2,7 +2,7 @@
 <#
 Build and verify one local, unsigned 1.0 preview MSI and portable ZIP from the
 same hosted Release build. This never uploads an artifact or approves media for
-the final signed release. All output folders are fresh and workspace-local.
+the supported 1.0 release. All output folders are fresh and workspace-local.
 #>
 [CmdletBinding()]
 param(

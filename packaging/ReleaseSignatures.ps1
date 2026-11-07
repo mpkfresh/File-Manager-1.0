@@ -37,3 +37,26 @@ function Assert-FileManagerBinarySignatures {
             -ExpectedSignerThumbprint $ExpectedSignerThumbprint
     }
 }
+
+function Assert-ReleaseFileUnsigned {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Required unsigned release file is missing: $Path"
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'NotSigned' -or $null -ne $signature.SignerCertificate) {
+        throw "Unsigned release expected for '$Path'; found $($signature.Status)."
+    }
+    [pscustomobject]@{ Path = $Path; Status = $signature.Status }
+}
+
+function Assert-FileManagerBinaryUnsigned {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PayloadDirectory)
+
+    foreach ($name in Get-FileManagerExecutableNames) {
+        Assert-ReleaseFileUnsigned -Path (Join-Path $PayloadDirectory $name)
+    }
+}

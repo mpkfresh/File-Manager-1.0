@@ -13,6 +13,7 @@ param(
     [string]$ExpectedAppSha256,
     [ValidatePattern('^[A-Fa-f0-9]{40}$')]
     [string]$ExpectedMsiSignerThumbprint,
+    [switch]$ExpectUnsignedRelease,
     [string]$ExpectedPayloadManifest,
     [ValidatePattern('^[A-Fa-f0-9]{64}$')]
     [string]$ExpectedManifestSha256,
@@ -34,11 +35,15 @@ if ($ProductName -cne 'File Manager' -or
 if ($ExpectedManifestSha256 -and -not $ExpectedPayloadManifest) {
     throw 'A manifest SHA-256 requires an expected payload manifest.'
 }
+if ($ExpectUnsignedRelease -and ($ReviewOnlyPrerelease -or $ExpectedMsiSignerThumbprint)) {
+    throw 'Unsigned release mode cannot be combined with preview identity or a signer thumbprint.'
+}
 if ([Version]$ExpectedVersion -ge [Version]'1.0.0' -and
         (-not $ExpectedPayloadManifest -or -not $ExpectedManifestSha256 -or
         -not $ExpectedPackageSha256 -or -not $ExpectedAppSha256 -or
-        (-not $ReviewOnlyPrerelease -and -not $ExpectedMsiSignerThumbprint))) {
-    throw 'A 1.0-or-newer MSI install check requires pinned MSI, app and payload manifest hashes plus the MSI signer thumbprint.'
+        (-not $ReviewOnlyPrerelease -and -not $ExpectedMsiSignerThumbprint -and
+            -not $ExpectUnsignedRelease))) {
+    throw 'A 1.0-or-newer MSI install check requires pinned MSI, app and payload manifest hashes plus an explicit signed or unsigned trust mode.'
 }
 
 $payloadManifest = $null
@@ -86,7 +91,13 @@ $packageSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $packagePath).Hash
 if ($ExpectedPackageSha256 -and $packageSha256 -ine $ExpectedPackageSha256) {
     throw 'The MSI bytes differ from the approved package hash.'
 }
-if ($ExpectedMsiSignerThumbprint) {
+if ($ExpectUnsignedRelease) {
+    $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
+    if ($signature.Status -ne 'NotSigned' -or $null -ne $signature.SignerCertificate) {
+        throw "The approved unsigned MSI was expected; found $($signature.Status)."
+    }
+}
+elseif ($ExpectedMsiSignerThumbprint) {
     $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
     if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
             $signature.SignerCertificate.Thumbprint -ine $ExpectedMsiSignerThumbprint) {

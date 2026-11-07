@@ -14,6 +14,7 @@ param(
     [switch]$RequireSignature,
     [ValidatePattern('^[A-Fa-f0-9]{40}$')]
     [string]$ExpectedSignerThumbprint,
+    [switch]$ExpectUnsignedRelease,
     [ValidateRange(1, 600)]
     [int]$ProbeTimeoutSeconds = 180
 )
@@ -21,9 +22,12 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ReleaseSignatures.ps1')
 . (Join-Path $PSScriptRoot 'PayloadInventory.ps1')
-if (($RequireSignature -or $ExpectedSignerThumbprint) -and
+if ($ExpectUnsignedRelease -and ($RequireSignature -or $ExpectedSignerThumbprint)) {
+    throw 'Unsigned release mode cannot be combined with a signer requirement.'
+}
+if (($RequireSignature -or $ExpectedSignerThumbprint -or $ExpectUnsignedRelease) -and
         (-not $ExpectedPayloadManifest -or -not $ExpectedManifestSha256)) {
-    throw 'Signed portable verification requires a hash-pinned approved payload manifest.'
+    throw 'Release portable verification requires a hash-pinned approved payload manifest.'
 }
 if ($ExpectedManifestSha256 -and -not $ExpectedPayloadManifest) {
     throw 'A manifest SHA-256 requires an expected payload manifest.'
@@ -191,6 +195,10 @@ try {
         Assert-FileManagerBinarySignatures -PayloadDirectory $payload `
             -ExpectedSignerThumbprint $ExpectedSignerThumbprint | Out-Null
     }
+    elseif ($ExpectUnsignedRelease) {
+        # Confirm the disclosed trust mode before running any extracted code.
+        Assert-FileManagerBinaryUnsigned -PayloadDirectory $payload | Out-Null
+    }
     $probe = New-Object Diagnostics.Process
     try {
         $probe.StartInfo.FileName = $application.FullName
@@ -230,6 +238,8 @@ try {
         DeploymentProbe = 'Passed'
         BinarySignatures = if ($RequireSignature -or $ExpectedSignerThumbprint) {
             'Passed (five application executables)'
+        } elseif ($ExpectUnsignedRelease) {
+            'Confirmed unsigned (five application executables)'
         } else { 'Not required (engineering artifact)' }
         PayloadManifest = if ($ExpectedPayloadManifest) { 'Passed (all extracted files)' } else { 'Not supplied' }
     } | Format-List
