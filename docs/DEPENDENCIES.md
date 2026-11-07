@@ -1,6 +1,8 @@
 # Release dependency inventory
 
-**Local public-source draft; review exact final package before publication.**
+This inventory describes source and dependency inputs for File Manager 1.0.
+The official GitHub Releases page identifies any accepted package hashes and
+support status; a source checkout or review artifact is not a release.
 The proposed Windows x64 1.0 source selects Qt 6.11.2 with the matching MSVC
 2022 kit. The owner accepted the known Qt 6.11.2 JSON-parser and HTTP/2
 crash risks for 1.0 with disclosure and a later fixed-Qt update; the final
@@ -14,14 +16,14 @@ clean uninstall; original-user isolation was not completed.
 The `packaging/release-payload.txt` contract includes QtSvg's SBOM, the
 Signalsmith MIT text, the MPL 2.0 text attributed to Qt Network's Public
 Suffix List data, and a QtBase attribution appendix. This host package pass
-does not establish legal completeness, two-profile isolation or a signed release.
+does not establish legal completeness, two-profile isolation or a supported release.
 An unexplained component or version change stops a release
 until the inventory, notices,
 licenses and tests are updated.
 
 | Component | Pinned version or revision | Use |
 | --- | --- | --- |
-| Qt | 6.11.2, MSVC 2022 x64 selected for proposed 1.0; final package bytes pending | Dynamically linked Core, Gui, Widgets, Network, Sql, Multimedia and Svg |
+| Qt | 6.11.2, MSVC 2022 x64 selected for 1.0; exact package bytes require release acceptance | Dynamically linked Core, Gui, Widgets, Network, Sql, Multimedia and Svg |
 | minizip-ng | [4.2.2 source](https://github.com/zlib-ng/minizip-ng/commit/7b2387161c542fa9f427352dcdef76097d0d692b); `7b2387161c542fa9f427352dcdef76097d0d692b` | Statically linked ZIP reading |
 | zlib-ng | [2.3.3 source](https://github.com/zlib-ng/zlib-ng/commit/12731092979c6d07f42da27da673a9f6c7b13586); `12731092979c6d07f42da27da673a9f6c7b13586` | Statically linked compression support for minizip-ng |
 | FFmpeg | Five isolated DLLs built from upstream `n7.1.5`; matching Qt Multimedia module/plugin rebuilt from 6.11.2 source; final package pending | Shared media libraries used by Qt Multimedia's FFmpeg backend |
@@ -41,36 +43,33 @@ in [third-party notices](../THIRD_PARTY_NOTICES.md) and upstream source.
 The seven retained V53 media files are approved as **packaging inputs** and
 published with a [focused source bundle](../packaging/v53-media-source.zip)
 and [provenance manifest](../packaging/ffmpeg-1.0-v53-approved-input.json).
-The hosted final-identity unsigned package gate passed in
-[run 42157669514](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/42157669514),
-but its unsigned MSI and portable ZIP were not uploaded or retained.
+The later [hosted run 42317566921](https://github.com/mpkfresh/File-Manager-1.0/actions/runs/42317566921)
+produced an unsigned 1.0 MSI and portable ZIP that were downloaded and
+hash-matched for local review. They remain unreleased; later source and
+package-text changes require a new build and exact-byte review.
 Complete corresponding source, modifications, build/relink instructions and
 remaining shipped-component attributions still need final distribution
 review. Qt [identifies](https://doc.qt.io/qt-6.11/windows-graphics.html)
-its prebuilt `opengl32sw.dll` as Mesa llvmpipe. The working notice now
-includes [Qt's MIT/Boost attribution](https://doc.qt.io/qt-6.11/qt-attribution-llvmpipe.html),
-and a development build copied that correction; the exact shipped build/source route
-remains open. Microsoft's
-[DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler)
-ships DLLs named `dxcompiler.dll` and `dxil.dll`, but the same names do not
-establish the origin of File Manager's copies. Review `d3dcompiler_47.dll`
-separately. The historical R213 copies of all three graphics compiler DLLs
-match the installed Windows SDK `Redist/D3D/x64` files by SHA-256, and
-[Microsoft's REDIST list](https://learn.microsoft.com/en-us/legal/windows-sdk/redist)
-includes those SDK-relative paths for unmodified classic-app distribution
-subject to its license. The working package contract adds the SDK's complete
-third-party notice at `licenses/Windows-SDK-Third-Party-Notices.rtf`. V1/V2 must
-still bind the final deployment source paths and hashes to final package bytes
-and verify that notice is present. The ten bundled MSVC runtime DLLs require a match to the
-actual toolchain's redistributable files and license; Microsoft's
-[2026 distributable-code list](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution)
-excludes preview components. Windows SDK functions and Windows system
-components are not vendored application source.
+its prebuilt `opengl32sw.dll` as Mesa llvmpipe. The notice
+includes [Qt's MIT/Boost attribution](https://doc.qt.io/qt-6.11/qt-attribution-llvmpipe.html);
+the exact shipped build/source route remains open. The unsigned 1.0 pair's
+three shader compiler DLLs match the
+earlier hash-pinned hosted Windows SDK inputs by SHA-256; two differ from this
+developer PC's older SDK. The raw hosted source-path report was not retained.
+[Microsoft's SDK REDIST list](https://learn.microsoft.com/en-us/legal/windows-sdk/redist)
+names the three `Redist/D3D/x64` files for unmodified classic-app distribution,
+subject to the SDK license. The package carries the SDK's complete third-party
+notice at `licenses/Windows-SDK-Third-Party-Notices.rtf`. The ten bundled VC143
+runtime DLLs match the earlier compiler-selected hosted redist inputs by hash;
+their raw source-path report was not retained either.
+[Microsoft's VS2022 distributable-code list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution)
+conditions distribution on the Visual Studio license. The release review must
+confirm applicable rights and preserve the exact source/version evidence.
 
 Before each release, review current upstream security advisories for Qt,
 FFmpeg, minizip-ng and zlib-ng, reconcile their exact packaged files and
 licenses with the manifest, then run the native, malicious-input, package
 inventory and clean-Windows gates on the final bytes. Critical or known
-exploitable issues block release. This inventory does not establish SignPath
-Foundation eligibility; that requires a separate review of every packaged
-component and its licensing.
+exploitable issues block release. This inventory does not establish
+redistribution rights or a complete corresponding source offer; those require
+review of every packaged component and its applicable terms.
