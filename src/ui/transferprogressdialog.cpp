@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QFormLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLocale>
@@ -12,6 +13,8 @@
 #include <QPaintEvent>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScreen>
+#include <QScrollArea>
 #include <QSettings>
 #include <QSizePolicy>
 #include <QVBoxLayout>
@@ -145,7 +148,7 @@ TransferProgressDialog::TransferProgressDialog(bool move, const QStringList& sou
     setAccessibleDescription(
         "Shows progress, recent speed, remaining time, Pause, Resume and Cancel.");
     setWindowModality(Qt::NonModal);
-    setMinimumWidth(460);
+    setMinimumWidth(320);
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(18, 16, 18, 16);
@@ -178,7 +181,14 @@ TransferProgressDialog::TransferProgressDialog(bool move, const QStringList& sou
     summary_->setObjectName("TransferProgressSummary");
     root->addWidget(summary_);
 
-    details_ = new QWidget(this);
+    detailsScroll_ = new QScrollArea(this);
+    detailsScroll_->setObjectName("TransferDetailsScroll");
+    detailsScroll_->setFrameShape(QFrame::NoFrame);
+    detailsScroll_->setWidgetResizable(true);
+    detailsScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    detailsScroll_->setMinimumHeight(0);
+    detailsScroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    details_ = new QWidget(detailsScroll_);
     details_->setObjectName("TransferDetailsPanel");
     auto* detailsLayout = new QVBoxLayout(details_);
     detailsLayout->setContentsMargins(0, 4, 0, 0);
@@ -200,7 +210,8 @@ TransferProgressDialog::TransferProgressDialog(bool move, const QStringList& sou
     detailsLayout->addLayout(fields);
     graph_ = new SpeedGraph(details_);
     detailsLayout->addWidget(graph_);
-    root->addWidget(details_);
+    detailsScroll_->setWidget(details_);
+    root->addWidget(detailsScroll_, 1);
 
     auto* actions = new QHBoxLayout;
     pause_ = new QPushButton(QStringLiteral("Pause"), this);
@@ -308,13 +319,20 @@ void TransferProgressDialog::renderProgress()
 
 void TransferProgressDialog::setExpanded(bool expanded)
 {
-    details_->setVisible(expanded);
+    detailsScroll_->setVisible(expanded);
     detailsToggle_->setText(expanded ? QStringLiteral("Fewer details")
                                      : QStringLiteral("More details"));
     detailsToggle_->setAccessibleName(detailsToggle_->text());
-    setMinimumWidth(expanded ? 600 : 460);
+    const QScreen* target = parentWidget() ? parentWidget()->screen() : screen();
+    if (!target)
+        target = QGuiApplication::primaryScreen();
+    const QSize available = target ? target->availableGeometry().size() : QSize(800, 600);
+    const int maximumWidth = std::max(1, available.width() - 24);
+    const int maximumHeight = std::max(1, available.height() - 24);
+    setMinimumWidth(std::min(360, maximumWidth));
     adjustSize();
-    resize(expanded ? 640 : 460, expanded ? 390 : 190);
+    resize(std::min(expanded ? 640 : 460, maximumWidth),
+           std::min(expanded ? 390 : 190, maximumHeight));
 }
 
 } // namespace filemanager::ui

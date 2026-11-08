@@ -71,6 +71,7 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPersistentModelIndex>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QSettings>
 #include <QStatusBar>
@@ -870,12 +871,13 @@ bool verifyTransferUi(bool capture)
     QApplication::processEvents();
     auto* toggle = dialog.findChild<QPushButton*>("TransferDetailsToggle");
     auto* details = dialog.findChild<QWidget*>("TransferDetailsPanel");
+    auto* detailsScroll = dialog.findChild<QScrollArea*>("TransferDetailsScroll");
     auto* pause = dialog.findChild<QPushButton*>("TransferPauseResume");
     auto* cancel = dialog.findChild<QPushButton*>("TransferCancel");
     auto* bar = dialog.findChild<QProgressBar*>("TransferProgressBar");
     auto* graph = dialog.findChild<QWidget*>("TransferSpeedGraph");
     auto* summary = dialog.findChild<QLabel*>("TransferProgressSummary");
-    passed &= expect(toggle && details && pause && cancel && bar && graph && summary
+    passed &= expect(toggle && details && detailsScroll && pause && cancel && bar && graph && summary
             && !details->isVisible() && !pause->isEnabled(),
         "Compact transfer mode should expose details, Pause and Cancel controls.");
     filemanager::files::TransferProgress progress;
@@ -925,6 +927,14 @@ bool verifyTransferUi(bool capture)
             passed &= expect(dialog.grab().save(QDir(directory).filePath("expanded.png")),
                 "Capture the expanded transfer dialog.");
         }
+        dialog.setMaximumSize(480, 330);
+        dialog.resize(480, 330);
+        QApplication::processEvents();
+        passed &= expect(dialog.width() <= 480 && dialog.height() <= 330
+                && detailsScroll->isVisible()
+                && dialog.rect().contains(toggle->geometry())
+                && dialog.rect().contains(cancel->geometry()),
+            "Expanded transfer mode should retain its controls in a constrained viewport.");
     }
     dialog.setJobState(filemanager::files::TransferJobState::Running);
     if (pause)

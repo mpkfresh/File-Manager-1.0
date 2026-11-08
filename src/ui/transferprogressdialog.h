@@ -10,6 +10,7 @@
 class QLabel;
 class QProgressBar;
 class QPushButton;
+class QScrollArea;
 class QWidget;
 
 namespace filemanager::ui {
@@ -46,6 +47,7 @@ private:
     QPushButton* cancel_ = nullptr;
     QPushButton* detailsToggle_ = nullptr;
     QWidget* details_ = nullptr;
+    QScrollArea* detailsScroll_ = nullptr;
     SpeedGraph* graph_ = nullptr;
     QTimer refreshTimer_;
     QElapsedTimer graphClock_;
