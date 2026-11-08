@@ -9,6 +9,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileInfo>
+#include <QFontMetrics>
 #include <QHash>
 #include <QMimeData>
 #include <QMouseEvent>
@@ -44,6 +45,20 @@ public:
     QByteArray payload(const QByteArray& paneToken) const { return token_ + ':' + paneToken; }
 
 protected:
+    QSize tabSizeHint(int index) const override
+    {
+        QSize size = QTabBar::tabSizeHint(index);
+        const QWidget* close = tabButton(index, QTabBar::RightSide);
+        const int closeWidth = close ? close->width() : 0;
+        // The stylesheet's horizontal padding does not consistently reserve
+        // room for a custom close button at Windows display scaling levels.
+        const int desiredWidth = fontMetrics().horizontalAdvance(tabText(index))
+            + closeWidth + 48;
+        size.setWidth(qBound(132, desiredWidth, 240));
+        size.setHeight(qMax(size.height(), fontMetrics().height() + 18));
+        return size;
+    }
+
     void mousePressEvent(QMouseEvent* event) override
     {
         pressedPosition_ = event->position().toPoint();
@@ -149,6 +164,8 @@ TabbedPanel::TabbedPanel(const QString& initialPath, QWidget* parent, bool creat
     tabs_->setMovable(true);
     tabs_->setTabsClosable(false);
     tabs_->tabBar()->setElideMode(Qt::ElideMiddle);
+    tabs_->tabBar()->setExpanding(false);
+    tabs_->tabBar()->setUsesScrollButtons(true);
     layout->addWidget(tabs_);
     tabBar->transfer = [this](TabbedPanel* source, int sourceIndex, int destinationIndex) {
         return transferTabFrom(source, sourceIndex, destinationIndex);
@@ -257,7 +274,8 @@ void TabbedPanel::attachPane(FilePane* pane, bool makeCurrent)
     close->setToolTip("Close tab");
     close->setAccessibleName("Close tab");
     close->setAutoRaise(true);
-    close->setFixedSize(20, 20);
+    const int closeEdge = qMax(22, tabs_->tabBar()->fontMetrics().height() + 8);
+    close->setFixedSize(closeEdge, closeEdge);
     if (!filemanager::ui::applicationHighContrastEnabled()) {
         close->setStyleSheet("QToolButton{color:#9296a3;border:0;border-radius:4px;padding:0;}"
                              "QToolButton:hover{background:#3a304d;color:#fff;}");

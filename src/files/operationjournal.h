@@ -4,7 +4,9 @@
 
 #include <QDateTime>
 #include <QByteArray>
+#include <QFutureWatcher>
 #include <QObject>
+#include <QThreadPool>
 #include <QTimer>
 
 #include <optional>
@@ -53,6 +55,7 @@ public:
     bool load(QString* error = nullptr);
     void synchronize(const QList<TransferRecord>& transfers);
     bool flush(QString* error = nullptr);
+    void requestImmediateFlush();
     bool clear(QString* error = nullptr);
     bool dismissInterrupted(const QStringList& recordIds, QString* error = nullptr);
     QStringList verifiedCleanupPaths(const QString& recordId,
@@ -68,14 +71,27 @@ public:
 
 signals:
     void changed();
+    void persistenceSaved();
+    void persistenceFailed(const QString& error);
 
 private:
+    struct WriteResult {
+        bool ok = false;
+        QString error;
+    };
+
+    static WriteResult writeSnapshot(const QList<JournalRecord>& records,
+        const QString& storagePath);
+    void settleBackgroundWrite();
     void scheduleFlush();
     bool quarantineCorruptStorage(const QString& reason, QString* error);
 
     QString storagePath_;
     QList<JournalRecord> records_;
     QTimer flushTimer_;
+    QThreadPool writePool_;
+    QFutureWatcher<WriteResult>* activeWatcher_ = nullptr;
+    bool dirty_ = false;
 };
 
 } // namespace filemanager::files

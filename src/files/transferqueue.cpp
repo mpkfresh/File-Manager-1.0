@@ -133,6 +133,14 @@ std::optional<quint64> TransferQueue::activeJobId() const
     return active_ ? std::optional<quint64>(active_->id) : std::nullopt;
 }
 
+std::optional<TransferJobState> TransferQueue::stateForJob(quint64 jobId) const
+{
+    const auto record = std::find_if(history_.cbegin(), history_.cend(),
+        [jobId](const TransferRecord& candidate) { return candidate.id == jobId; });
+    return record == history_.cend()
+        ? std::nullopt : std::optional<TransferJobState>(record->state);
+}
+
 QList<TransferRecord> TransferQueue::history() const
 {
     return history_;

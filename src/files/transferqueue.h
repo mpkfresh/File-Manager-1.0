@@ -46,6 +46,7 @@ public:
     std::optional<quint64> retryFailed(quint64 jobId);
     int pendingCount() const;
     std::optional<quint64> activeJobId() const;
+    std::optional<TransferJobState> stateForJob(quint64 jobId) const;
     QList<TransferRecord> history() const;
 
 signals:

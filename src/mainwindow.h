@@ -19,6 +19,7 @@ class QPushButton;
 class QSplitter;
 class QTreeView;
 class QTabWidget;
+class QTimer;
 class QCloseEvent;
 class QShowEvent;
 class FilePane;
@@ -163,6 +164,8 @@ private:
     filemanager::commands::CommandRegistry* commands_ = nullptr;
     filemanager::files::TransferQueue* transferQueue_ = nullptr;
     filemanager::files::OperationJournal* operationJournal_ = nullptr;
+    QTimer* journalSyncTimer_ = nullptr;
+    bool journalSaveWarningShown_ = false;
     QHash<quint64, QString> recoveryRetries_;
     filemanager::files::SessionUndoStack sessionUndo_;
     QPointer<QPushButton> batchRenameUndoPrompt_;

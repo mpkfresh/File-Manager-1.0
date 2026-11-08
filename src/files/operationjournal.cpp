@@ -9,6 +9,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QSet>
+#include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
 #include <iterator>
@@ -20,6 +21,11 @@
 
 namespace filemanager::files {
 namespace {
+
+constexpr qsizetype maximumPlainBytes = 64 * 1024 * 1024;
+constexpr qint64 maximumEncryptedBytes = 72 * 1024 * 1024;
+constexpr qsizetype maximumManifestEntries = 50000;
+constexpr qsizetype maximumRecords = 1000;
 
 QString defaultStoragePath()
 {
@@ -293,7 +299,7 @@ bool validRecord(const QJsonValue& value, int schema)
             && !QDir::isAbsolutePath(object.value("currentPath").toString()))
         || !object.value("errors").isArray() || errors.size() > 256
         || (schema >= 2 && !object.value("manifest").isArray())
-        || manifest.size() > 10000) {
+        || manifest.size() > maximumManifestEntries) {
         return false;
     }
     for (const QJsonValue& source : sources) {
@@ -389,7 +395,6 @@ QByteArray serializeOperationJournal(const QList<JournalRecord>& journalRecords,
 bool parseOperationJournal(const QByteArray& plain, QList<JournalRecord>* records,
     int* schema, QString* error)
 {
-    constexpr qsizetype maximumPlainBytes = 4 * 1024 * 1024;
     if (!records) {
         if (error)
             *error = QStringLiteral("No operation-journal destination was provided.");
@@ -411,7 +416,7 @@ bool parseOperationJournal(const QByteArray& plain, QList<JournalRecord>* record
     const int decodedSchema = root.value("schema").toInt(-1);
     const QJsonArray values = root.value("records").toArray();
     if ((decodedSchema != 1 && decodedSchema != 2 && decodedSchema != 3)
-        || !root.value("records").isArray() || values.size() > 1000) {
+        || !root.value("records").isArray() || values.size() > maximumRecords) {
         if (error)
             *error = QStringLiteral("The operation journal has an unsupported or invalid schema.");
         return false;
@@ -442,19 +447,25 @@ bool parseOperationJournal(const QByteArray& plain, QList<JournalRecord>* record
 OperationJournal::OperationJournal(QString storagePath, QObject* parent)
     : QObject(parent), storagePath_(storagePath.isEmpty() ? defaultStoragePath() : std::move(storagePath))
 {
+    writePool_.setMaxThreadCount(1);
     flushTimer_.setSingleShot(true);
     flushTimer_.setInterval(350);
-    connect(&flushTimer_, &QTimer::timeout, this, [this] { flush(); });
+    connect(&flushTimer_, &QTimer::timeout, this, &OperationJournal::requestImmediateFlush);
 }
 
 OperationJournal::~OperationJournal()
 {
-    if (flushTimer_.isActive())
-        flush();
+    if (flushTimer_.isActive() || dirty_ || activeWatcher_) {
+        QString error;
+        flush(&error);
+    }
 }
 
 bool OperationJournal::load(QString* error)
 {
+    flushTimer_.stop();
+    settleBackgroundWrite();
+    dirty_ = false;
     records_.clear();
     QFile file(storagePath_);
     if (!file.exists())
@@ -464,7 +475,6 @@ bool OperationJournal::load(QString* error)
             *error = file.errorString();
         return false;
     }
-    constexpr qint64 maximumEncryptedBytes = 8 * 1024 * 1024;
     if (file.size() <= 0 || file.size() > maximumEncryptedBytes)
         return quarantineCorruptStorage(
             QStringLiteral("The encrypted operation journal exceeds its safety limit."), error);
@@ -521,26 +531,89 @@ void OperationJournal::synchronize(const QList<TransferRecord>& transfers)
     emit changed();
 }
 
+OperationJournal::WriteResult OperationJournal::writeSnapshot(
+    const QList<JournalRecord>& records, const QString& storagePath)
+{
+    if (records.size() > maximumRecords) {
+        return {false, QStringLiteral("The operation journal has too many records to save safely.")};
+    }
+    for (const JournalRecord& record : records) {
+        if (record.manifest.size() > maximumManifestEntries) {
+            return {false,
+                QStringLiteral("A recovery manifest exceeds its safe entry limit.")};
+        }
+    }
+    const QByteArray plain = serializeOperationJournal(records);
+    if (plain.isEmpty() || plain.size() > maximumPlainBytes) {
+        return {false, QStringLiteral("The operation journal exceeds its safe size limit.")};
+    }
+    QString error;
+    const QByteArray encrypted = protect(plain, &error);
+    if (encrypted.isEmpty())
+        return {false, error};
+    if (encrypted.size() > maximumEncryptedBytes) {
+        return {false, QStringLiteral("The encrypted operation journal exceeds its safe size limit.")};
+    }
+    if (!QDir().mkpath(QFileInfo(storagePath).absolutePath())) {
+        return {false, QStringLiteral("Could not create the operation-journal folder.")};
+    }
+    QSaveFile file(storagePath);
+    if (!file.open(QIODevice::WriteOnly) || file.write(encrypted) != encrypted.size()
+            || !file.commit()) {
+        return {false, file.errorString()};
+    }
+    return {true, {}};
+}
+
+void OperationJournal::settleBackgroundWrite()
+{
+    if (!activeWatcher_)
+        return;
+    auto* watcher = activeWatcher_;
+    watcher->waitForFinished();
+    activeWatcher_ = nullptr;
+    delete watcher;
+}
+
+void OperationJournal::requestImmediateFlush()
+{
+    flushTimer_.stop();
+    if (!dirty_ || activeWatcher_)
+        return;
+    auto* watcher = new QFutureWatcher<WriteResult>(this);
+    activeWatcher_ = watcher;
+    dirty_ = false;
+    const QList<JournalRecord> snapshot = records_;
+    const QString path = storagePath_;
+    connect(watcher, &QFutureWatcher<WriteResult>::finished, this, [this, watcher] {
+        if (activeWatcher_ != watcher) {
+            watcher->deleteLater();
+            return;
+        }
+        const WriteResult result = watcher->result();
+        activeWatcher_ = nullptr;
+        watcher->deleteLater();
+        if (result.ok)
+            emit persistenceSaved();
+        else
+            emit persistenceFailed(result.error);
+        if (dirty_)
+            requestImmediateFlush();
+    });
+    watcher->setFuture(QtConcurrent::run(&writePool_,
+        [snapshot, path] { return writeSnapshot(snapshot, path); }));
+}
+
 bool OperationJournal::flush(QString* error)
 {
     flushTimer_.stop();
-    const QByteArray plain = serializeOperationJournal(records_);
-    const QByteArray encrypted = protect(plain, error);
-    if (encrypted.isEmpty())
-        return false;
-    if (!QDir().mkpath(QFileInfo(storagePath_).absolutePath())) {
-        if (error)
-            *error = QStringLiteral("Could not create the operation-journal folder.");
-        return false;
-    }
-    QSaveFile file(storagePath_);
-    if (!file.open(QIODevice::WriteOnly) || file.write(encrypted) != encrypted.size()
-            || !file.commit()) {
-        if (error)
-            *error = file.errorString();
-        return false;
-    }
-    return true;
+    settleBackgroundWrite();
+    const WriteResult result = writeSnapshot(records_, storagePath_);
+    if (error)
+        *error = result.error;
+    if (result.ok)
+        dirty_ = false;
+    return result.ok;
 }
 
 bool OperationJournal::quarantineCorruptStorage(const QString& reason, QString* error)
@@ -562,6 +635,8 @@ bool OperationJournal::quarantineCorruptStorage(const QString& reason, QString* 
 bool OperationJournal::clear(QString* error)
 {
     flushTimer_.stop();
+    settleBackgroundWrite();
+    dirty_ = false;
     records_.clear();
     QStringList failures;
     if (QFile::exists(storagePath_) && !QFile::remove(storagePath_))
@@ -695,6 +770,11 @@ QList<JournalRecord> OperationJournal::interruptedRecords() const
 
 QString OperationJournal::storagePath() const { return storagePath_; }
 
-void OperationJournal::scheduleFlush() { flushTimer_.start(); }
+void OperationJournal::scheduleFlush()
+{
+    dirty_ = true;
+    if (!flushTimer_.isActive())
+        flushTimer_.start();
+}
 
 } // namespace filemanager::files

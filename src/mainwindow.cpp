@@ -41,6 +41,7 @@
 #include "ui/transferannouncements.h"
 #include "ui/localizedformat.h"
 #include "ui/operationcenterdialog.h"
+#include "ui/transferprogressdialog.h"
 #include "ui/preferencesdialog.h"
 #include "workspace/layoutmodel.h"
 #include "workspace/workspaceview.h"
@@ -267,18 +268,44 @@ MainWindow::MainWindow(const QString& initialLocation, StartupTimings* timings)
         });
     QString journalError;
     const bool journalLoaded = operationJournal_->load(&journalError);
+    journalSyncTimer_ = new QTimer(this);
+    journalSyncTimer_->setSingleShot(true);
+    journalSyncTimer_->setInterval(350);
+    const auto scheduleJournalSync = [this] {
+        if (!journalSyncTimer_->isActive())
+            journalSyncTimer_->start();
+    };
+    connect(journalSyncTimer_, &QTimer::timeout, operationJournal_, [this] {
+        operationJournal_->synchronize(transferQueue_->history());
+        operationJournal_->requestImmediateFlush();
+    });
     connect(transferQueue_, &filemanager::files::TransferQueue::historyChanged,
-        operationJournal_, [this] { operationJournal_->synchronize(transferQueue_->history()); });
+        operationJournal_, scheduleJournalSync);
     connect(transferQueue_, &filemanager::files::TransferQueue::progressDetails,
-        operationJournal_, [this](quint64, const auto&) {
-            operationJournal_->synchronize(transferQueue_->history());
-        });
+        operationJournal_, [scheduleJournalSync](quint64, const auto&) { scheduleJournalSync(); });
     connect(transferQueue_, &filemanager::files::TransferQueue::recoveryManifestChanged,
-        operationJournal_, [this](quint64) {
-            operationJournal_->synchronize(transferQueue_->history());
-            QString error;
-            if (!operationJournal_->flush(&error))
-                statusBar()->showMessage("Recovery manifest could not be saved: " + error, 10000);
+        operationJournal_, [scheduleJournalSync](quint64) { scheduleJournalSync(); });
+    connect(transferQueue_, &filemanager::files::TransferQueue::jobFinished,
+        operationJournal_, [this](quint64, bool, const QStringList&) {
+            QTimer::singleShot(0, operationJournal_, [this] {
+                journalSyncTimer_->stop();
+                operationJournal_->synchronize(transferQueue_->history());
+                operationJournal_->requestImmediateFlush();
+            });
+        });
+    connect(operationJournal_, &filemanager::files::OperationJournal::persistenceFailed,
+        this, [this](const QString& error) {
+            const QString message = "Recovery manifest could not be saved: " + error;
+            statusBar()->showMessage(message, 30000);
+            if (journalSaveWarningShown_)
+                return;
+            journalSaveWarningShown_ = true;
+            QTimer::singleShot(0, this, [this, message] {
+                QMessageBox::warning(this, "Recovery history unavailable",
+                    message + "\n\nThe transfer can continue, but a crash may leave recent items "
+                              "outside recovery history. File Manager will not clean up items "
+                              "that are absent from the saved journal.");
+            });
         });
     connect(transferQueue_, &filemanager::files::TransferQueue::jobFinished, this,
         [this](quint64, bool cancelled, const QStringList& errors) {
@@ -2733,25 +2760,21 @@ void MainWindow::startTransfer(const QStringList& sources, const QString& destin
         removableStorage = removableStorage
             || filemanager::files::storageLocationTraits(source).safeEjectRecommended;
     }
-    auto* progress = new QProgressDialog(
-        removableStorage
-            ? QStringLiteral("Preparing transfer with removable storage…\n"
-                             "Do not eject it until this operation finishes.")
-            : (move ? QStringLiteral("Preparing move...")
-                    : QStringLiteral("Preparing copy...")),
-        "Cancel", 0, 0, this);
-    progress->setWindowTitle(move ? "Move items" : "Copy items");
-    progress->setWindowModality(Qt::NonModal);
-    progress->setObjectName("TransferProgressDialog");
-    progress->setAccessibleName(move ? "Move transfer progress" : "Copy transfer progress");
-    progress->setAccessibleDescription(
-        "Reports transfer progress, remaining time, cancellation, conflicts and failures.");
-    progress->setAutoClose(false);
-    progress->setMinimumDuration(0);
+    auto* progress = new filemanager::ui::TransferProgressDialog(
+        move, sources, destination, removableStorage, this);
     auto jobId = std::make_shared<quint64>(0);
     auto announcedProgress = std::make_shared<int>(-1);
-    connect(progress, &QProgressDialog::canceled, progress,
+    connect(progress, &filemanager::ui::TransferProgressDialog::cancelRequested, progress,
             [this, jobId] { transferQueue_->cancel(*jobId); });
+    connect(progress, &filemanager::ui::TransferProgressDialog::pauseRequested, progress,
+            [this, jobId] { transferQueue_->pause(*jobId); });
+    connect(progress, &filemanager::ui::TransferProgressDialog::resumeRequested, progress,
+            [this, jobId] { transferQueue_->resume(*jobId); });
+    connect(transferQueue_, &filemanager::files::TransferQueue::historyChanged, progress,
+            [this, progress, jobId] {
+                if (const auto state = transferQueue_->stateForJob(*jobId))
+                    progress->setJobState(*state);
+            });
     connect(transferQueue_, &filemanager::files::TransferQueue::progressDetails, progress,
             [progress, jobId, announcedProgress, move](quint64 id,
                 const filemanager::files::TransferProgress& details)
@@ -2760,35 +2783,7 @@ void MainWindow::startTransfer(const QStringList& sources, const QString& destin
                     return;
                 const qint64 completed = details.completedBytes;
                 const qint64 total = details.totalBytes;
-                if (total <= 0)
-                {
-                    progress->setRange(0, 0);
-                }
-                else
-                {
-                    progress->setRange(0, 1000);
-                    progress->setValue(static_cast<int>((static_cast<double>(completed) / total) * 1000));
-                }
-                QStringList status;
-                if (!details.currentPath.isEmpty())
-                    status.append(QDir::toNativeSeparators(details.currentPath));
-                if (total > 0) {
-                    status.append(QStringLiteral("%1 of %2")
-                        .arg(QLocale().formattedDataSize(completed),
-                            QLocale().formattedDataSize(total)));
-                }
-                if (details.bytesPerSecond > 0)
-                    status.append(QLocale().formattedDataSize(details.bytesPerSecond) + "/s");
-                if (details.remainingSeconds >= 0) {
-                    const qint64 minutes = details.remainingSeconds / 60;
-                    const qint64 seconds = details.remainingSeconds % 60;
-                    status.append(minutes > 0
-                        ? QStringLiteral("%1m %2s remaining").arg(
-                            QLocale().toString(minutes), QLocale().toString(seconds))
-                        : QStringLiteral("%1s remaining").arg(QLocale().toString(seconds)));
-                }
-                if (!status.isEmpty())
-                    progress->setLabelText(status.join(QStringLiteral("\n")));
+                progress->setProgress(details);
                 const int percent = filemanager::ui::transferProgressAnnouncementPercent(
                     completed, total);
                 if (percent >= 0 && percent != *announcedProgress) {
@@ -2884,6 +2879,8 @@ void MainWindow::startTransfer(const QStringList& sources, const QString& destin
     *jobId = transferQueue_->enqueue({sources, destination,
         move ? filemanager::files::TransferOperation::Move
              : filemanager::files::TransferOperation::Copy});
+    if (const auto state = transferQueue_->stateForJob(*jobId))
+        progress->setJobState(*state);
 }
 
 void MainWindow::offerElevatedCopyRetry(quint64 failedJobId)
@@ -5028,6 +5025,14 @@ void MainWindow::closeEvent(QCloseEvent* event)
             diagnosticLog_.shutdown();
         }
         return;
+    }
+    journalSyncTimer_->stop();
+    operationJournal_->synchronize(transferQueue_->history());
+    QString journalError;
+    if (!operationJournal_->flush(&journalError) && !journalSaveWarningShown_) {
+        journalSaveWarningShown_ = true;
+        QMessageBox::warning(this, "Recovery history unavailable",
+            "Recovery manifest could not be saved: " + journalError);
     }
     if (filemanager::settings::SessionStore{}.restorationEnabled())
         saveLayout();

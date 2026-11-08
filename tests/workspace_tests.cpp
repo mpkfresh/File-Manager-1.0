@@ -878,13 +878,163 @@ int runGuardedBatchRenameInterruptionFixture(const QString& root);
 bool runGuardedDirectoryTests();
 bool runGuardedCrossVolumeTests();
 
+bool runOperationJournalBatchTests()
+{
+    QTemporaryDir root;
+    bool passed = expect(root.isValid(),
+        "A disposable large-journal fixture should be available.");
+    if (!root.isValid())
+        return false;
+
+    filemanager::files::TransferRecord transfer;
+    transfer.durableId = QStringLiteral("journal-batch-40000");
+    transfer.request.sources = {root.filePath("source.txt")};
+    transfer.request.destinationDirectory = root.filePath("destination");
+    transfer.state = filemanager::files::TransferJobState::Running;
+    transfer.queuedAt = QDateTime::currentDateTimeUtc();
+    transfer.startedAt = transfer.queuedAt;
+    transfer.totalBytes = 40000;
+    transfer.completedBytes = 40000;
+
+    filemanager::files::TransferManifestEntry entry;
+    entry.sourcePath = transfer.request.sources.first();
+    entry.size = 1;
+    entry.sourceSize = 1;
+    for (int index = 0; index < 40000; ++index) {
+        entry.destinationPath = root.filePath(
+            QStringLiteral("destination/f%1.txt").arg(index, 5, 10, QLatin1Char('0')));
+        transfer.manifest.append(entry);
+    }
+
+    const QString largePath = root.filePath("large-journal.dat");
+    filemanager::files::OperationJournal large(largePath);
+    large.synchronize({transfer});
+    QString error;
+    const bool largeSaved = large.flush(&error);
+    if (!largeSaved)
+        std::fprintf(stderr, "Large journal save: %s\n", error.toUtf8().constData());
+    passed &= expect(largeSaved,
+        "A 40,000-entry encrypted recovery journal should save within its reader bounds.");
+    if (largeSaved) {
+        filemanager::files::OperationJournal loaded(largePath);
+        const bool reloaded = loaded.load(&error);
+        passed &= expect(reloaded && loaded.interruptedRecords().size() == 1
+                && loaded.interruptedRecords().first().manifest.size() == 40000,
+            "The 40,000-entry journal should reload intact as interrupted work.");
+    }
+
+    for (int index = 40000; index <= 50000; ++index) {
+        entry.destinationPath = root.filePath(
+            QStringLiteral("destination/f%1.txt").arg(index, 5, 10, QLatin1Char('0')));
+        transfer.manifest.append(entry);
+    }
+    const QString overLimitPath = root.filePath("over-limit-journal.dat");
+    filemanager::files::OperationJournal overLimit(overLimitPath);
+    overLimit.synchronize({transfer});
+    error.clear();
+    passed &= expect(!overLimit.flush(&error) && !error.isEmpty()
+            && !QFileInfo::exists(overLimitPath),
+        "A writer-bound refusal must not create a journal its loader would reject.");
+
+    transfer.manifest = {entry};
+    transfer.totalBytes = 2;
+    transfer.completedBytes = 1;
+    const QString asyncPath = root.filePath("async-journal.dat");
+    filemanager::files::OperationJournal asynchronous(asyncPath);
+    int saved = 0;
+    QString asynchronousError;
+    QObject::connect(&asynchronous, &filemanager::files::OperationJournal::persistenceSaved,
+        &asynchronous, [&saved] { ++saved; });
+    QObject::connect(&asynchronous, &filemanager::files::OperationJournal::persistenceFailed,
+        &asynchronous, [&asynchronousError](const QString& failure) {
+            asynchronousError = failure;
+        });
+    asynchronous.synchronize({transfer});
+    asynchronous.requestImmediateFlush();
+    transfer.completedBytes = 2;
+    asynchronous.synchronize({transfer});
+    QElapsedTimer deadline;
+    deadline.start();
+    while (saved < 2 && asynchronousError.isEmpty() && deadline.elapsed() < 10000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 50);
+        QThread::msleep(10);
+    }
+    passed &= expect(saved == 2 && asynchronousError.isEmpty(),
+        "A newer batched snapshot must persist after an in-flight write.");
+    if (saved == 2) {
+        filemanager::files::OperationJournal asyncReload(asyncPath);
+        const bool reloaded = asyncReload.load(&error);
+        passed &= expect(reloaded && asyncReload.interruptedRecords().size() == 1
+                && asyncReload.interruptedRecords().first().completedBytes == 2,
+            "The final asynchronous journal should contain the latest progress.");
+    }
+
+    const QString cleanupSource = root.filePath("cleanup-source.txt");
+    const QString cleanupDirectory = root.filePath("cleanup-destination");
+    passed &= expect(QDir().mkpath(cleanupDirectory),
+        "The disposable recovery destination should be available.");
+    QFile source(cleanupSource);
+    passed &= expect(source.open(QIODevice::WriteOnly) && source.write("original") == 8,
+        "The disposable recovery source should be written.");
+    source.close();
+    if (QFileInfo::exists(cleanupSource) && QFileInfo(cleanupDirectory).isDir()) {
+        filemanager::files::TransferQueue queue;
+        QEventLoop completed;
+        bool finished = false;
+        QObject::connect(&queue, &filemanager::files::TransferQueue::jobFinished,
+            &completed, [&completed, &finished] { finished = true; completed.quit(); });
+        queue.enqueue({{cleanupSource}, cleanupDirectory,
+            filemanager::files::TransferOperation::Copy});
+        QTimer::singleShot(5000, &completed, &QEventLoop::quit);
+        completed.exec();
+        const auto history = queue.history();
+        passed &= expect(finished && history.size() == 1
+                && history.first().manifest.size() == 1,
+            "The disposable copy should produce one committed recovery item.");
+        if (finished && history.size() == 1 && history.first().manifest.size() == 1) {
+            auto cleanupTransfer = history.first();
+            cleanupTransfer.durableId = QStringLiteral("batch-cleanup");
+            cleanupTransfer.state = filemanager::files::TransferJobState::Running;
+            const QString cleanupPath = root.filePath("cleanup-journal.dat");
+            filemanager::files::OperationJournal cleanupJournal(cleanupPath);
+            cleanupJournal.synchronize({cleanupTransfer});
+            passed &= expect(cleanupJournal.flush(&error),
+                "The cleanup baseline should be saved before later file changes.");
+            filemanager::files::OperationJournal cleanupReload(cleanupPath);
+            const bool cleanupLoaded = cleanupReload.load(&error);
+            passed &= expect(cleanupLoaded,
+                "The cleanup baseline should reload as interrupted work.");
+            const QString destination = cleanupTransfer.manifest.first().destinationPath;
+            QFile changed(destination);
+            passed &= expect(changed.open(QIODevice::Append) && changed.write("changed") == 7,
+                "The committed destination should be changeable after saving.");
+            changed.close();
+            const QString unrecorded = QDir(cleanupDirectory).filePath("unrecorded.txt");
+            QFile newer(unrecorded);
+            passed &= expect(newer.open(QIODevice::WriteOnly) && newer.write("new") == 3,
+                "An item absent from the saved journal should be creatable.");
+            newer.close();
+            if (cleanupLoaded) {
+                const auto result = cleanupReload.cleanupVerifiedCreatedItems("batch-cleanup");
+                passed &= expect(result.removedPaths.isEmpty()
+                        && result.refusedPaths == QStringList{destination}
+                        && QFileInfo::exists(destination) && QFileInfo::exists(unrecorded),
+                    "Recovery must leave changed and unrecorded destinations untouched.");
+            }
+        }
+    }
+    return passed;
+}
+
 int main(int argc, char* argv[])
 {
     // Keep helper-mode stdout unchanged. Flush main-run progress so a timeout
     // identifies the last reached phase instead of losing buffered diagnostics.
-    const auto phase = [enabled = argc == 1](const char* name) {
+    const bool* phasePassed = nullptr;
+    const auto phase = [enabled = argc == 1, &phasePassed](const char* name) {
         if (enabled) {
-            std::fprintf(stdout, "Workspace phase: %s\n", name);
+            std::fprintf(stdout, "Workspace phase: %s passed=%d\n", name,
+                phasePassed == nullptr || *phasePassed);
             std::fflush(stdout);
         }
     };
@@ -969,6 +1119,8 @@ int main(int argc, char* argv[])
     QSettings().clear();
     if (arguments == QStringList{arguments.constFirst(), "--guarded-cross-volume-only"})
         return runGuardedCrossVolumeTests() ? 0 : 1;
+    if (arguments == QStringList{arguments.constFirst(), "--journal-batch-only"})
+        return runOperationJournalBatchTests() ? 0 : 1;
     if (arguments == QStringList{arguments.constFirst(), "--cloud-preview-only"})
         return runCloudPreviewNoHydrationTests() ? 0 : 1;
     if (arguments == QStringList{arguments.constFirst(), "--ffmpeg-candidate-only"})
@@ -978,6 +1130,8 @@ int main(int argc, char* argv[])
     if (arguments.size() == 4 && arguments.at(1) == "--ffmpeg-compressed-video-only")
         return runFfmpegCompressedVideoTest(arguments.at(2), arguments.at(3)) ? 0 : 1;
     bool passed = expect(isolatedHome.isValid(), "The isolated filesystem-model home should open.");
+    phasePassed = &passed;
+    passed &= runOperationJournalBatchTests();
     passed &= runCloudPreviewNoHydrationTests();
     passed &= runWinEKeyStateTests();
     passed &= runWinEIntegrationTests();

@@ -224,6 +224,8 @@ set(FILE_MANAGER_LIBRARY_SOURCES
     src/ui/filesearchdialog.h
     src/ui/operationcenterdialog.cpp
     src/ui/operationcenterdialog.h
+    src/ui/transferprogressdialog.cpp
+    src/ui/transferprogressdialog.h
     src/ui/preferencesdialog.cpp
     src/ui/preferencesdialog.h
     src/ui/firstlaunchintegrationdialog.cpp

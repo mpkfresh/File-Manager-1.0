@@ -7,6 +7,7 @@
 #include "ui/homeview.h"
 #include "ui/preferencesdialog.h"
 #include "ui/operationcenterdialog.h"
+#include "ui/transferprogressdialog.h"
 #include "files/transferqueue.h"
 #include "files/operationjournal.h"
 #include "tags/tagcatalog.h"
@@ -68,6 +69,7 @@
 #include <QStandardPaths>
 #include <QFileSystemModel>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPersistentModelIndex>
 #include <QSpinBox>
 #include <QSettings>
@@ -818,6 +820,128 @@ bool verifyMainToolbar(MainWindow& window)
             "Every icon-only toolbar action should have contextual hover help.");
 }
 
+bool verifyTransferUi(bool capture)
+{
+    QTemporaryDir fixture;
+    if (!expect(fixture.isValid(), "Transfer UI fixture should open."))
+        return false;
+    const QString source = fixture.filePath("A source folder with a long tab title");
+    const QString destination = fixture.filePath("A destination folder with a long tab title");
+    if (!expect(QDir().mkpath(source) && QDir().mkpath(destination),
+            "Transfer UI folder fixtures should exist."))
+        return false;
+
+    bool passed = true;
+    TabbedPanel panel(source, nullptr, false);
+    panel.addTab(source);
+    panel.addTab(destination);
+    panel.resize(480, 280);
+    panel.show();
+    QApplication::processEvents();
+    QTabBar* tabs = panel.tabBar();
+    passed &= expect(tabs && tabs->count() == 2 && !tabs->expanding()
+            && tabs->usesScrollButtons(),
+        "Folder tabs should retain natural widths and scroll when space is limited.");
+    if (tabs) {
+        for (int index = 0; index < tabs->count(); ++index) {
+            QWidget* close = tabs->tabButton(index, QTabBar::RightSide);
+            const QRect tab = tabs->tabRect(index);
+            passed &= expect(close && tab.width() >= 132 && tab.width() <= 240
+                    && tab.contains(close->geometry())
+                    && close->geometry().left() - tab.left() >= 48,
+                "Each folder tab should reserve visible space for its text and close button.");
+        }
+    }
+
+    const QString displaySource = QStringLiteral("C:/Example/Source/sample.txt");
+    const QString displayDestination = QStringLiteral("D:/Example/Destination");
+    filemanager::ui::TransferProgressDialog dialog(
+        false, {displaySource}, displayDestination, false);
+    int pauses = 0;
+    int resumes = 0;
+    int cancels = 0;
+    QObject::connect(&dialog, &filemanager::ui::TransferProgressDialog::pauseRequested,
+        [&pauses] { ++pauses; });
+    QObject::connect(&dialog, &filemanager::ui::TransferProgressDialog::resumeRequested,
+        [&resumes] { ++resumes; });
+    QObject::connect(&dialog, &filemanager::ui::TransferProgressDialog::cancelRequested,
+        [&cancels] { ++cancels; });
+    dialog.show();
+    QApplication::processEvents();
+    auto* toggle = dialog.findChild<QPushButton*>("TransferDetailsToggle");
+    auto* details = dialog.findChild<QWidget*>("TransferDetailsPanel");
+    auto* pause = dialog.findChild<QPushButton*>("TransferPauseResume");
+    auto* cancel = dialog.findChild<QPushButton*>("TransferCancel");
+    auto* bar = dialog.findChild<QProgressBar*>("TransferProgressBar");
+    auto* graph = dialog.findChild<QWidget*>("TransferSpeedGraph");
+    auto* summary = dialog.findChild<QLabel*>("TransferProgressSummary");
+    passed &= expect(toggle && details && pause && cancel && bar && graph && summary
+            && !details->isVisible() && !pause->isEnabled(),
+        "Compact transfer mode should expose details, Pause and Cancel controls.");
+    filemanager::files::TransferProgress progress;
+    progress.completedBytes = 512;
+    progress.totalBytes = 1024;
+    progress.bytesPerSecond = 256;
+    progress.remainingSeconds = 2;
+    progress.currentPath = QStringLiteral("C:/Example/Source/a file with a long name.txt");
+    dialog.setProgress(progress);
+    QEventLoop settle;
+    QTimer::singleShot(150, &settle, &QEventLoop::quit);
+    settle.exec();
+    passed &= expect(bar && bar->value() == 50 && summary
+            && summary->text().contains("50%") && summary->text().contains("512")
+            && summary->text().contains("2s"),
+        "Transfer progress should show numeric bytes, percent and remaining time.");
+    if (capture) {
+        const QString directory = QDir(FILE_MANAGER_SOURCE_DIR).filePath(
+            "out/transfer-ui-review");
+        QDir().mkpath(directory);
+        passed &= expect(tabs && tabs->grab().save(QDir(directory).filePath("folder-tabs.png"))
+                && dialog.grab().save(QDir(directory).filePath("compact.png")),
+            "Capture the corrected folder tabs and compact transfer dialog.");
+    }
+    if (tabs) {
+        QFont larger = tabs->font();
+        larger.setPointSizeF(qMax(11.0, larger.pointSizeF() * 1.5));
+        tabs->setFont(larger);
+        QApplication::processEvents();
+        for (int index = 0; index < tabs->count(); ++index) {
+            const QWidget* close = tabs->tabButton(index, QTabBar::RightSide);
+            const QRect tab = tabs->tabRect(index);
+            passed &= expect(close && tab.contains(close->geometry())
+                    && tab.height() >= tabs->fontMetrics().height() + 18,
+                "Folder tabs should keep text and close controls within their bounds at larger text sizes.");
+        }
+    }
+    if (toggle) {
+        toggle->click();
+        QApplication::processEvents();
+        passed &= expect(details->isVisible() && graph->isVisible()
+                && toggle->text() == "Fewer details" && dialog.width() >= 600,
+            "Expanded transfer mode should show separate details and a speed graph.");
+        if (capture) {
+            const QString directory = QDir(FILE_MANAGER_SOURCE_DIR).filePath(
+                "out/transfer-ui-review");
+            passed &= expect(dialog.grab().save(QDir(directory).filePath("expanded.png")),
+                "Capture the expanded transfer dialog.");
+        }
+    }
+    dialog.setJobState(filemanager::files::TransferJobState::Running);
+    if (pause)
+        pause->click();
+    dialog.setJobState(filemanager::files::TransferJobState::Paused);
+    if (pause)
+        pause->click();
+    if (cancel)
+        cancel->click();
+    passed &= expect(pauses == 1 && resumes == 1 && cancels == 1
+            && cancel && !cancel->isEnabled(),
+        "Pause, Resume and Cancel should emit distinct single actions.");
+    dialog.close();
+    panel.close();
+    return passed;
+}
+
 int main(int argc, char* argv[])
 {
     std::cerr << "Visual phase: application startup" << std::endl;
@@ -834,6 +958,8 @@ int main(int argc, char* argv[])
     std::cerr << "Visual phase: theme applied" << std::endl;
     bool passed = expect(settingsStore.isValid(), "The isolated settings store should open.");
     passed &= verifySystemTextSizeInTheme(application);
+    if (application.arguments().contains("--transfer-ui-only"))
+        return passed && verifyTransferUi(true) ? 0 : 1;
     if (application.arguments().contains("--first-launch-only"))
         return passed && verifyFirstLaunchOffer(
             QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/first-launch-ui-review.png")) ? 0 : 1;
@@ -3071,6 +3197,7 @@ int main(int argc, char* argv[])
             && QFileInfo::exists(renameRoot.filePath("Ending.pdf")),
         "Explicit Rename confirmation should apply the reviewed name list to the exact selected files.");
 
+    passed &= verifyTransferUi(false);
     std::cerr << "Visual phase: complete" << std::endl;
     return passed ? 0 : 1;
 }
