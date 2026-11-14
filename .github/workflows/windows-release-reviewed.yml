@@ -316,7 +316,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $sdk = 'C:\Program Files (x86)\Windows Kits\10\Redist\D3D\x64'
           $expected = @{
-            'd3dcompiler_47.dll' = 'A05F99734F7C4822FEFC12B367AF21FD0976ED6608752FB1E1E80B6ECE7ECBBB'
+            'd3dcompiler_47.dll' = '1DA540A0DDBC54DE4142570C8EC4A4566EF610FCE72C181EFB55A9332C480790'
             'dxcompiler.dll' = '6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE'
             'dxil.dll' = 'E69B838018A1E0025201EDBE9F166D061807CAB2F02221C18C53EA6F5E96F0B5'
           }
@@ -332,6 +332,11 @@ jobs:
             $actual = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
             Write-Output "$name Windows SDK Redist: $($item.Length) bytes; SHA-256 $actual"
             if ($actual -cne $expected[$name]) { $mismatch = $true }
+            $signature = Get-AuthenticodeSignature -LiteralPath $source
+            if ($signature.Status -cne 'Valid' -or
+                $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(,|$)') {
+              throw "$name is not validly signed by Microsoft."
+            }
           }
           if ($mismatch) { throw 'Hosted Windows SDK shader bytes differ from the pinned V1 inputs.' }
 
@@ -689,7 +694,7 @@ jobs:
             --selected-qt-prefix $env:FILE_MANAGER_QT_PREFIX `
             --deploy-tool $deploy --deploy-tool-sha256 $toolHash `
             --stage $bin --sdk-redist-root $sdk `
-            --d3dcompiler-sha256 A05F99734F7C4822FEFC12B367AF21FD0976ED6608752FB1E1E80B6ECE7ECBBB `
+            --d3dcompiler-sha256 1DA540A0DDBC54DE4142570C8EC4A4566EF610FCE72C181EFB55A9332C480790 `
             --dxcompiler-sha256 6EC587D1952778A41A5A90647B39D0C86958E7DABF87FA1CF2B14408BFE1E8DE `
             --dxil-sha256 E69B838018A1E0025201EDBE9F166D061807CAB2F02221C18C53EA6F5E96F0B5 `
             --report $report 2>&1
