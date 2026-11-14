@@ -51,6 +51,7 @@
 #include <QSysInfo>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <optional>
@@ -141,6 +142,7 @@ PreferencesDialog::PreferencesDialog(Dependencies dependencies, QWidget* parent)
     auto* generalForm = addSection("General", "Appearance and everyday file behavior.");
     auto* windowsForm = addSection("Windows", "Choose how File Manager works with Windows for your account.");
     auto* privacyForm = addSection("Privacy and data", "Review permissions and local data. Clear items independently.");
+    privacyForm->setContentsMargins(2, 0, 2, 0);
     auto* portabilityForm = addSection("Import and export", "Move selected settings without exporting private local data.");
     dialogLayout->addWidget(tabs, 1);
     const auto addCompactRow = [this](QFormLayout* section, const QString& title,
@@ -266,7 +268,16 @@ PreferencesDialog::PreferencesDialog(Dependencies dependencies, QWidget* parent)
         permissionDetails.append(permissionRows.at(row).at(0) + ": " + permissionRows.at(row).at(2));
     }
     permissionSummary->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    permissionSummary->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     permissionSummary->setMinimumHeight(285);
+    QTimer::singleShot(0, permissionSummary, [permissionSummary] {
+        permissionSummary->resizeRowsToContents();
+        int readableTableHeight = permissionSummary->horizontalHeader()->height()
+            + 2 * permissionSummary->frameWidth() + 4;
+        for (int row = 0; row < permissionSummary->rowCount(); ++row)
+            readableTableHeight += permissionSummary->rowHeight(row);
+        permissionSummary->setMinimumHeight(qMax(285, readableTableHeight));
+    });
     permissionSummary->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     permissionLayout->addWidget(permissionSummary);
     auto* showPermissionDetails = new QPushButton("Show permission details", permissionGroup);
@@ -364,11 +375,11 @@ PreferencesDialog::PreferencesDialog(Dependencies dependencies, QWidget* parent)
                 state_->dependencies.diagnosticLog->errorString());
     });
     auto* includePaths = new QCheckBox(
-        "Include open and indexed folder paths in an exported diagnostic bundle", permissionGroup);
+        "Include open/indexed folder paths", permissionGroup);
     includePaths->setObjectName("IncludeDiagnosticPaths");
-    includePaths->setAccessibleName("Include sensitive paths in diagnostic bundle");
+    includePaths->setAccessibleName("Include open and indexed folder paths in exported diagnostic bundle");
     includePaths->setChecked(false);
-    includePaths->setToolTip("Off by default. Paths and filenames can reveal personal or confidential information.");
+    includePaths->setToolTip("Off by default. Open and indexed folder paths can reveal personal or confidential information.");
     permissionLayout->addWidget(includePaths);
     auto* exportDiagnostics = new QPushButton("Export diagnostic bundle…", permissionGroup);
     exportDiagnostics->setObjectName("ExportDiagnosticBundle");
@@ -533,7 +544,10 @@ PreferencesDialog::PreferencesDialog(Dependencies dependencies, QWidget* parent)
     form = generalForm;
 
     state_->font = new QComboBox(this);
-    state_->font->addItems({"9", "9.5", "10", "11", "12", "13", "14"});
+    state_->font->setObjectName("PreferencesFontSize");
+    state_->font->addItems({"8", "8.5", "9", "9.5", "10", "11", "12", "13",
+        "14", "15", "16", "17", "18"});
+    state_->font->setMinimumWidth(state_->font->fontMetrics().horizontalAdvance("9.5") + 44);
     state_->font->setCurrentText(QString::number(state_->originalAppearance.fontPointSize));
     state_->density = new QComboBox(this);
     state_->density->addItems({"Compact", "Comfortable", "Spacious"});

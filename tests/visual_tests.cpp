@@ -16,6 +16,7 @@
 #include "ui/filepane.h"
 #include "ui/filesearchdialog.h"
 #include "ui/contentsearchdialog.h"
+#include "ui/conflictdialog.h"
 #include "ui/firstlaunchintegrationdialog.h"
 #include "ui/fileitemdelegate.h"
 #include "preview/thumbnailprovider.h"
@@ -23,6 +24,7 @@
 #include "preview/previewidentity.h"
 #include "ui/navigationtree.h"
 #include "ui/tabbedpanel.h"
+#include "ui/tvorganizerdialog.h"
 #include "search/savedsearchstore.h"
 #include "search/sessionsearchhistory.h"
 #include "settings/favoritegroups.h"
@@ -50,6 +52,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QGroupBox>
 #include <QImage>
 #include <QItemSelectionModel>
 #include <QJsonDocument>
@@ -67,22 +70,27 @@
 #include <QProxyStyle>
 #include <QStandardItemModel>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <QFileSystemModel>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPersistentModelIndex>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QSettings>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTableView>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QVBoxLayout>
 #include <QWidget>
 #include <QTreeWidget>
 #include <QUrl>
@@ -95,6 +103,13 @@
 #endif
 
 namespace {
+
+QString visualOutputPath(const QString& relativePath)
+{
+    const QString root = qEnvironmentVariable("FILE_MANAGER_VISUAL_OUTPUT_ROOT");
+    return QDir(root.isEmpty() ? QDir(FILE_MANAGER_SOURCE_DIR).filePath("out") : root)
+        .filePath(relativePath);
+}
 
 bool expect(bool condition, const char* message)
 {
@@ -223,13 +238,22 @@ bool verifyDelegateThumbnail()
         ready = true;
         loop.quit();
     });
+    QElapsedTimer thumbnailWait;
+    thumbnailWait.start();
     delegate.paint(&painter, option, item);
-    // The provider permits one retry after a timed-out isolated helper. Allow
-    // both bounded helper attempts plus queued-signal time in a cold VM.
+    // First use on optical media also copies and permissions the private
+    // preview runtime before either bounded helper attempt can begin. Leave
+    // time for that one-time staging on a cold, offline VM.
+    constexpr int ColdRuntimeStagingGraceMilliseconds = 30000;
     QTimer::singleShot(2 * filemanager::preview::PreviewController::HelperTimeoutMilliseconds
-        + 5000, &loop, &QEventLoop::quit);
+        + ColdRuntimeStagingGraceMilliseconds, &loop, &QEventLoop::quit);
     if (!ready)
         loop.exec();
+    if (!ready) {
+        std::cerr << "Delegate thumbnail deadline: elapsed_ms=" << thumbnailWait.elapsed()
+                  << " active_threads=" << QThreadPool::globalInstance()->activeThreadCount()
+                  << " error_present=" << !thumbnailError.isEmpty() << '\n';
+    }
     bool passed = expect(ready, "Delegate thumbnail should finish within its deadline.");
     for (const bool nativeIconPresent : {true, false}) {
         if (!nativeIconPresent)
@@ -755,6 +779,8 @@ bool verifyFirstLaunchOffer(const QString& capturePath = {})
         "Both choices should show their immediate scope and privacy consequence.");
     offer.show();
     QApplication::processEvents();
+    passed &= expect(useFolders && useFolders->width() >= useFolders->sizeHint().width(),
+        "The folder-opening choice should not be clipped at the selected font size.");
     const int collapsedWidth = offer.width();
     if (keepWindows && applyChoices)
         passed &= expect(keepWindows->x() < applyChoices->x(),
@@ -774,7 +800,7 @@ bool verifyFirstLaunchOffer(const QString& capturePath = {})
             "Expanded help should remain inside the dialog.");
         if (!capturePath.isEmpty())
             passed &= expect(offer.grab().save(
-                QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/first-launch-ui-review-details.png")),
+                visualOutputPath("first-launch-ui-review-details.png")),
                 "Capture the expanded contextual help.");
     }
     if (useFolders && useWinE && startAtSignIn && applyChoices) {
@@ -895,8 +921,7 @@ bool verifyTransferUi(bool capture)
             && summary->text().contains("2s"),
         "Transfer progress should show numeric bytes, percent and remaining time.");
     if (capture) {
-        const QString directory = QDir(FILE_MANAGER_SOURCE_DIR).filePath(
-            "out/transfer-ui-review");
+        const QString directory = visualOutputPath("transfer-ui-review");
         QDir().mkpath(directory);
         passed &= expect(tabs && tabs->grab().save(QDir(directory).filePath("folder-tabs.png"))
                 && dialog.grab().save(QDir(directory).filePath("compact.png")),
@@ -918,18 +943,29 @@ bool verifyTransferUi(bool capture)
     if (toggle) {
         toggle->click();
         QApplication::processEvents();
+        const QRect summaryBounds = summary ? summary->fontMetrics().boundingRect(
+            QRect(0, 0, summary->width(), 10000), Qt::TextWordWrap, summary->text()) : QRect{};
+        passed &= expect(summary && summary->height() >= summaryBounds.height(),
+            "The expanded transfer summary should wrap without cutting off remaining time.");
         passed &= expect(details->isVisible() && graph->isVisible()
                 && toggle->text() == "Fewer details" && dialog.width() >= 600,
             "Expanded transfer mode should show separate details and a speed graph.");
         if (capture) {
-            const QString directory = QDir(FILE_MANAGER_SOURCE_DIR).filePath(
-                "out/transfer-ui-review");
+            const QString directory = visualOutputPath("transfer-ui-review");
             passed &= expect(dialog.grab().save(QDir(directory).filePath("expanded.png")),
                 "Capture the expanded transfer dialog.");
         }
         dialog.setMaximumSize(480, 330);
         dialog.resize(480, 330);
         QApplication::processEvents();
+        if (qEnvironmentVariableIsSet("FILE_MANAGER_VISUAL_GEOMETRY_DIAGNOSTIC")) {
+            std::cerr << "Transfer constrained geometry: dialog=" << dialog.width() << 'x'
+                      << dialog.height() << " summary=" << summary->geometry().y() << '+'
+                      << summary->height() << " details=" << detailsScroll->geometry().y() << '+'
+                      << detailsScroll->height() << " toggle=" << toggle->geometry().y() << '+'
+                      << toggle->height() << " cancel=" << cancel->geometry().y() << '+'
+                      << cancel->height() << '\n';
+        }
         passed &= expect(dialog.width() <= 480 && dialog.height() <= 330
                 && detailsScroll->isVisible()
                 && dialog.rect().contains(toggle->geometry())
@@ -963,16 +999,140 @@ int main(int argc, char* argv[])
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsStore.path());
     QSettings().clear();
+    bool requestedFontValid = false;
+    const qreal requestedFontSize = qEnvironmentVariable("FILE_MANAGER_VISUAL_FONT_SIZE")
+        .toDouble(&requestedFontValid);
+    if (requestedFontValid && requestedFontSize >= 8.0 && requestedFontSize <= 18.0)
+        QSettings().setValue("appearance/fontSize", requestedFontSize);
+    else if (application.arguments().contains("--navigation-font-only"))
+        QSettings().setValue("appearance/fontSize", 18.0);
     std::cerr << "Visual phase: settings ready" << std::endl;
     filemanager::ui::applyApplicationTheme(application);
     std::cerr << "Visual phase: theme applied" << std::endl;
     bool passed = expect(settingsStore.isValid(), "The isolated settings store should open.");
-    passed &= verifySystemTextSizeInTheme(application);
+    // Screenshot capture modes exercise their own layouts. Run the font probe in
+    // the invariant/theme pass so captures do not repeat a global style reset.
+    if (!qEnvironmentVariableIsSet("FILE_MANAGER_VISUAL_CAPTURE_ONLY"))
+        passed &= verifySystemTextSizeInTheme(application);
     if (application.arguments().contains("--transfer-ui-only"))
         return passed && verifyTransferUi(true) ? 0 : 1;
     if (application.arguments().contains("--first-launch-only"))
         return passed && verifyFirstLaunchOffer(
-            QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/first-launch-ui-review.png")) ? 0 : 1;
+            visualOutputPath("first-launch-ui-review.png")) ? 0 : 1;
+    if (application.arguments().contains("--toolbar-seam-only")) {
+        QWidget sample;
+        auto* layout = new QVBoxLayout(&sample);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        auto* toolbar = new QToolBar(&sample);
+        toolbar->addAction("Open folder");
+        auto* tabs = new QTabWidget(&sample);
+        tabs->addTab(new QWidget(tabs), "Home");
+        layout->addWidget(toolbar);
+        layout->addWidget(tabs, 1);
+        sample.resize(500, 240);
+        sample.show();
+        QApplication::processEvents();
+        return passed && expect(sample.grab().save(visualOutputPath("toolbar-seam.png")),
+            "Capture the toolbar and tab seam.") ? 0 : 1;
+    }
+    if (application.arguments().contains("--navigation-font-only")) {
+        filemanager::ui::NavigationTree tree;
+        tree.rebuild({"C:/Example/Recent"}, {}, {});
+        bool foundSection = false;
+        for (int index = 0; index < tree.topLevelItemCount(); ++index) {
+            const auto* item = tree.topLevelItem(index);
+            if (!item->data(0, filemanager::ui::NavigationTree::KindRole)
+                    .toString().endsWith("-section"))
+                continue;
+            foundSection = true;
+            passed &= expect(item->font(0).pointSizeF() >= 18,
+                "Navigation section headings should follow the selected font size.");
+        }
+        tree.resize(360, 600);
+        tree.show();
+        QApplication::processEvents();
+        passed &= expect(foundSection && tree.grab().save(visualOutputPath("navigation-font.png")),
+            "Capture enlarged navigation headings.");
+        return passed ? 0 : 1;
+    }
+    if (application.arguments().contains("--file-search-layout-only")) {
+        QTemporaryDir fixture;
+        filemanager::search::SessionSearchHistory history;
+        filemanager::ui::FileSearchDialog dialog(fixture.path(), &history, nullptr,
+            fixture.filePath("saved-searches.dat"), fixture.filePath("index.db"));
+        dialog.show();
+        QApplication::processEvents();
+        auto* scope = dialog.findChild<QLabel*>("FileSearchScope");
+        passed &= expect(scope && (scope->fontMetrics().horizontalAdvance(scope->text())
+                <= scope->width() || scope->height() >= 2 * scope->fontMetrics().lineSpacing()),
+            "Long file-search scopes should wrap instead of being cut off.");
+        passed &= expect(fixture.isValid() && dialog.grab().save(
+                visualOutputPath("file-search-layout.png")),
+            "Capture the file-search layout.");
+        return passed ? 0 : 1;
+    }
+    if (application.arguments().contains("--conflict-layout-only")) {
+        QTemporaryDir fixture;
+        const QString source = fixture.filePath("source-example.txt");
+        const QString destination = fixture.filePath("destination-example.txt");
+        QFile sourceFile(source);
+        QFile destinationFile(destination);
+        passed &= expect(fixture.isValid() && sourceFile.open(QIODevice::WriteOnly)
+                && sourceFile.write("source") == 6 && destinationFile.open(QIODevice::WriteOnly)
+                && destinationFile.write("destination") == 11,
+            "Create disposable conflict layout fixtures.");
+        sourceFile.close();
+        destinationFile.close();
+        if (!passed) return 1;
+        QDir().mkpath(QFileInfo(visualOutputPath("conflict-layout.png")).absolutePath());
+        bool captured = false;
+        QTimer::singleShot(0, [&] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            captured = dialog->objectName() == "TransferConflictDialog"
+                && dialog->grab().save(visualOutputPath("conflict-layout.png"));
+            dialog->reject();
+        });
+        const auto result = filemanager::ui::ConflictDialog::run(
+            nullptr, source, destination, false);
+        passed &= expect(captured && result.decision == filemanager::files::ConflictDecision::Cancel,
+            "Capture the two-column transfer conflict dialog without choosing a file operation.");
+        return passed ? 0 : 1;
+    }
+    if (application.arguments().contains("--rename-layout-only")) {
+        QTemporaryDir fixture;
+        const QString path = fixture.filePath("example.txt");
+        QFile file(path);
+        passed &= expect(fixture.isValid() && file.open(QIODevice::WriteOnly)
+                && file.write("example") == 7,
+            "Create a disposable rename layout fixture.");
+        file.close();
+        if (!passed) return 1;
+        filemanager::ui::BatchRenameDialog dialog({path});
+        auto* mode = dialog.findChild<QComboBox*>("RenameMode");
+        auto* modeLabel = dialog.findChild<QLabel*>("RenameModeLabel");
+        auto* pages = dialog.findChild<QStackedWidget*>("RenamePages");
+        auto* orderHint = dialog.findChild<QLabel*>("RenameOrderHint");
+        dialog.show();
+        QApplication::processEvents();
+        const QString directory = visualOutputPath("rename-layout");
+        QDir().mkpath(directory);
+        for (int index = 0; mode && index < mode->count(); ++index) {
+            mode->setCurrentIndex(index);
+            QApplication::processEvents();
+            passed &= expect(modeLabel && modeLabel->width() >= modeLabel->sizeHint().width(),
+                "The Batch Rename mode label should fit at the selected font size.");
+            passed &= expect(pages && orderHint
+                    && pages->mapTo(&dialog, QPoint(0, pages->height())).y()
+                        <= orderHint->mapTo(&dialog, QPoint()).y(),
+                "Batch Rename form and preview guidance should not overlap.");
+            passed &= expect(dialog.grab().save(QDir(directory).filePath(
+                    QString("mode-%1.png").arg(index))),
+                "Capture every Batch Rename naming layout.");
+        }
+        return passed && expect(mode != nullptr, "Batch Rename modes should be available.") ? 0 : 1;
+    }
     if (application.arguments().contains("--toolbar-only")) {
         MainWindow window;
         window.resize(1024, 768);
@@ -980,8 +1140,50 @@ int main(int argc, char* argv[])
         QApplication::processEvents();
         passed &= verifyMainToolbar(window);
         passed &= expect(window.grab().save(
-            QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/toolbar-ui-review.png")),
+            visualOutputPath("toolbar-ui-review.png")),
             "Capture the compact toolbar for review.");
+        return passed ? 0 : 1;
+    }
+    if (application.arguments().contains("--media-organizer-layout-only")) {
+        filemanager::ui::TvOrganizerDialog dialog({});
+        dialog.show();
+        QApplication::processEvents();
+        auto* disclosure = dialog.findChild<QLabel*>("TvOrganizerDisclosure");
+        auto* kind = dialog.findChild<QComboBox*>("MediaOrganizerKind");
+        auto* roots = dialog.findChild<QListWidget*>("TvOrganizerRoots");
+        auto* table = dialog.findChild<QTableView*>("TvOrganizerReview");
+        auto* add = dialog.findChild<QPushButton*>("TvOrganizerAdd");
+        auto* remove = dialog.findChild<QPushButton*>("TvOrganizerRemove");
+        auto* choose = dialog.findChild<QPushButton*>("TvOrganizerChooseDestination");
+        auto* scan = dialog.findChild<QPushButton*>("TvOrganizerScan");
+        auto* cancel = dialog.findChild<QPushButton*>("TvOrganizerCancel");
+        const auto fits = [&dialog](QWidget* child) {
+            return child && dialog.rect().contains(
+                child->mapTo(&dialog, child->rect().bottomRight()));
+        };
+        passed &= expect(disclosure && kind && roots && table && fits(disclosure) && fits(roots)
+                && fits(table) && fits(add) && fits(remove) && fits(choose)
+                && fits(scan) && fits(cancel),
+            "Media Organizer controls should stay inside the dialog at the selected font and scale.");
+        for (auto* button : {add, remove, choose, scan, cancel})
+            passed &= expect(button && button->width() >= button->sizeHint().width(),
+                "Media Organizer button text should not be clipped.");
+        passed &= expect(dialog.grab().save(visualOutputPath("media-organizer-layout.png")),
+            "Capture the TV layout before any scan or file operation.");
+        if (kind) {
+            kind->setCurrentIndex(1);
+            QApplication::processEvents();
+            passed &= expect(fits(disclosure) && fits(roots) && fits(table)
+                    && fits(add) && fits(remove) && fits(choose)
+                    && fits(scan) && fits(cancel),
+                "Book-series controls should stay inside the dialog at the selected font and scale.");
+            for (auto* button : {add, remove, choose, scan, cancel})
+                passed &= expect(button && button->width() >= button->sizeHint().width(),
+                    "Book-series button text should not be clipped.");
+            passed &= expect(dialog.grab().save(visualOutputPath("media-organizer-book-layout.png")),
+                "Capture the book-series layout before any scan or file operation.");
+        }
+        dialog.reject();
         return passed ? 0 : 1;
     }
     if (application.arguments().contains("--content-search-only")) {
@@ -997,18 +1199,21 @@ int main(int argc, char* argv[])
         dialog.show();
         QApplication::processEvents();
         auto* query = dialog.findChild<QLineEdit*>("ContentSearchQuery");
+        auto* extension = dialog.findChild<QLineEdit*>("ContentSearchExtension");
         auto* searchButton = dialog.findChild<QPushButton*>("ContentSearchStart");
         auto* results = dialog.findChild<QListWidget*>("ContentSearchResults");
         auto* actions = dialog.findChild<QWidget*>("SearchResultActions");
         auto* empty = dialog.findChild<QLabel*>("ContentSearchEmpty");
         auto* status = dialog.findChild<QLabel*>("ContentSearchStatus");
-        passed &= expect(query && searchButton && results && actions && empty && status
+        passed &= expect(query && extension && searchButton && results && actions && empty && status
                 && empty->isVisible() && !results->isVisible() && !actions->isVisible()
                 && empty->geometry().top() > query->geometry().bottom()
                 && !status->isVisible() && empty->geometry().bottom() <= dialog.contentsRect().bottom(),
             "Content search guidance should occupy the results area below the search fields.");
-        const QString captureDirectory = QDir(FILE_MANAGER_SOURCE_DIR).filePath(
-            "out/content-search-ui-review");
+        passed &= expect(extension && extension->fontMetrics().horizontalAdvance(
+                extension->placeholderText()) + 24 <= extension->width(),
+            "The optional extension hint should fit without truncation.");
+        const QString captureDirectory = visualOutputPath("content-search-ui-review");
         QDir().mkpath(captureDirectory);
         passed &= expect(dialog.grab().save(QDir(captureDirectory).filePath("initial.png")),
             "Capture initial content-search guidance.");
@@ -1061,6 +1266,10 @@ int main(int argc, char* argv[])
         passed &= expect(transfers && empty && empty->isVisible() && !transfers->isVisible()
                 && summary && !summary->isVisible(),
             "Empty transfer view should show one guidance message instead of an empty table.");
+        const QString captureDirectory = visualOutputPath("operation-center-ui-review");
+        QDir().mkpath(captureDirectory);
+        passed &= expect(dialog.grab().save(QDir(captureDirectory).filePath("empty.png")),
+            "Capture the empty Operation Center at the selected font and display scale.");
         bool finished = false;
         QObject::connect(&queue, &filemanager::files::TransferQueue::jobFinished,
             &dialog, [&finished] { finished = true; });
@@ -1072,6 +1281,20 @@ int main(int argc, char* argv[])
         passed &= expect(transfers && transfers->rowCount() == 1 && transfers->isVisible()
                 && empty && !empty->isVisible() && summary->isVisible(),
             "A queued transfer should replace empty guidance with the populated table.");
+        if (transfers && transfers->rowCount() == 1) {
+            const QHeaderView* header = transfers->horizontalHeader();
+            for (int column = 0; column < transfers->columnCount(); ++column) {
+                const QString title = transfers->horizontalHeaderItem(column)->text();
+                passed &= expect(header->sectionSize(column)
+                        >= header->fontMetrics().horizontalAdvance(title) + 12,
+                    "Operation Center headings should not be clipped at the selected font size.");
+            }
+            passed &= expect(transfers->item(0, 4)
+                    && transfers->item(0, 4)->toolTip() == transfers->item(0, 4)->text(),
+                "A shortened destination should expose its full path.");
+        }
+        passed &= expect(dialog.grab().save(QDir(captureDirectory).filePath("populated.png")),
+            "Capture the populated Operation Center at the selected font and display scale.");
         QElapsedTimer transferWait;
         transferWait.start();
         while (!finished && transferWait.elapsed() < 10000)
@@ -1085,6 +1308,11 @@ int main(int argc, char* argv[])
         filemanager::ui::PreferencesDialog preferences({});
         preferences.show();
         QApplication::processEvents();
+        if (requestedFontValid) {
+            auto* fontChoice = preferences.findChild<QComboBox*>("PreferencesFontSize");
+            passed &= expect(fontChoice && fontChoice->currentText().toDouble() == requestedFontSize,
+                "Preferences should display the current font size without changing it.");
+        }
         auto* sections = preferences.findChild<QTabWidget*>("PreferencesTabs");
         passed &= expect(sections && sections->count() == 4
                 && sections->tabText(0) == "General"
@@ -1122,16 +1350,54 @@ int main(int argc, char* argv[])
                     && sections->widget(2)->findChild<QWidget*>("StoredLocalDataControls")
                     && sections->widget(3)->findChild<QPushButton*>("ExportPortableSettings"),
                 "Each preference should remain discoverable in its named section.");
-            const QString captureDirectory = QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/preferences-ui-review");
+            const QString captureDirectory = visualOutputPath("preferences-ui-review");
             QDir().mkpath(captureDirectory);
             for (int index = 0; index < sections->count(); ++index) {
                 sections->setCurrentIndex(index);
                 QApplication::processEvents();
+                auto* sectionScroll = qobject_cast<QScrollArea*>(sections->widget(index));
+                passed &= expect(sectionScroll && sectionScroll->horizontalScrollBar()->maximum() == 0,
+                    "Preferences sections should fit without sideways scrolling.");
+                if (index == 2 && qEnvironmentVariableIsSet("FILE_MANAGER_VISUAL_GEOMETRY_DIAGNOSTIC")) {
+                    auto* scroll = qobject_cast<QScrollArea*>(sections->widget(index));
+                    auto* table = scroll ? scroll->findChild<QTableWidget*>("PermissionDashboardSummary") : nullptr;
+                    auto* group = scroll ? scroll->findChild<QGroupBox*>("PermissionDashboard") : nullptr;
+                    std::cerr << "Privacy geometry: viewport="
+                              << (scroll ? scroll->viewport()->width() : -1)
+                              << " content=" << (scroll && scroll->widget() ? scroll->widget()->width() : -1)
+                              << " hmax=" << (scroll ? scroll->horizontalScrollBar()->maximum() : -1)
+                              << " table=" << (table ? table->width() : -1)
+                              << " table_viewport=" << (table ? table->viewport()->height() : -1)
+                              << " final_row_bottom=" << (table && table->item(7, 0)
+                                  ? table->visualItemRect(table->item(7, 0)).bottom() : -1)
+                              << " group=" << (group ? group->width() : -1) << '\n';
+                }
+                if (index == 2) {
+                    auto* scroll = qobject_cast<QScrollArea*>(sections->widget(index));
+                    auto* table = scroll ? scroll->findChild<QTableWidget*>("PermissionDashboardSummary") : nullptr;
+                    passed &= expect(scroll && scroll->horizontalScrollBar()->maximum() == 0,
+                        "Privacy settings should fit without sideways scrolling.");
+                    passed &= expect(table && table->item(7, 0)
+                            && table->visualItemRect(table->item(7, 0)).bottom()
+                                < table->viewport()->height(),
+                        "The privacy dashboard should show its final status row.");
+                }
                 passed &= expect(preferences.grab().save(QDir(captureDirectory).filePath(
                     QString("section-%1.png").arg(index))),
                     "Capture a Preferences section for visual review.");
             }
             sections->setCurrentIndex(2);
+            auto* privacyScroll = qobject_cast<QScrollArea*>(sections->widget(2));
+            if (privacyScroll) {
+                privacyScroll->verticalScrollBar()->setValue(
+                    privacyScroll->verticalScrollBar()->maximum());
+                QApplication::processEvents();
+                passed &= expect(preferences.grab().save(QDir(captureDirectory).filePath(
+                    "section-2-bottom.png")),
+                    "Capture the lower privacy settings at the selected font size.");
+                privacyScroll->verticalScrollBar()->setValue(0);
+                QApplication::processEvents();
+            }
             auto* summary = sections->widget(2)->findChild<QTableWidget*>("PermissionDashboardSummary");
             auto* detailsToggle = sections->widget(2)->findChild<QPushButton*>("PermissionDetailsToggle");
             auto* details = sections->widget(2)->findChild<QLabel*>("PermissionDetails");
@@ -1156,7 +1422,7 @@ int main(int argc, char* argv[])
     if (application.arguments().contains("--tags-only"))
         return passed && runTagEditorUiTests() && verifyFileLabelClearControl() ? 0 : 1;
     passed &= runTvOrganizerUiTests(application.arguments().contains("--capture-organizer-dialogs")
-        ? QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/tv-organizer-ui-review") : QString{});
+        ? visualOutputPath("tv-organizer-ui-review") : QString{});
     std::cerr << "Visual phase: media organizer finished" << std::endl;
     if (application.arguments().contains("--media-organizer-only"))
         return passed ? 0 : 1;
@@ -2341,7 +2607,7 @@ int main(int argc, char* argv[])
             auto* query = dialog->findChild<QLineEdit*>();
             auto* results = dialog->findChild<QListWidget*>();
             if (query && results) {
-                const QString captureDirectory = QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/compact-menu-ui-review");
+                const QString captureDirectory = visualOutputPath("compact-menu-ui-review");
                 QDir().mkpath(captureDirectory);
                 dialog->grab().save(QDir(captureDirectory).filePath("commands.png"));
                 bool containsFavoriteGroups = false;
@@ -2371,7 +2637,7 @@ int main(int argc, char* argv[])
             auto* search = dialog ? dialog->findChild<QLineEdit*>("HelpSearch") : nullptr;
             auto* topics = dialog ? dialog->findChild<QListWidget*>("HelpTopics") : nullptr;
             if (search && topics) {
-                const QString captureDirectory = QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/compact-menu-ui-review");
+                const QString captureDirectory = visualOutputPath("compact-menu-ui-review");
                 QDir().mkpath(captureDirectory);
                 dialog->grab().save(QDir(captureDirectory).filePath("help.png"));
                 search->setText("rename");
@@ -2416,8 +2682,7 @@ int main(int argc, char* argv[])
                     && summary->text().contains("Recoverable:");
             }
             if (application.arguments().contains("--capture-operation-center") && tabs) {
-                const QString captureDirectory = QDir(FILE_MANAGER_SOURCE_DIR).filePath(
-                    "out/operation-center-ui-review");
+                const QString captureDirectory = visualOutputPath("operation-center-ui-review");
                 QDir().mkpath(captureDirectory);
                 tabs->setCurrentIndex(0);
                 QApplication::processEvents();
@@ -2796,7 +3061,7 @@ int main(int argc, char* argv[])
                     && dialog->findChild<QDialogButtonBox*>();
                 if (binding == "Ctrl+F2" && application.arguments().contains("--capture-rename-dialogs")) {
                     QApplication::processEvents();
-                    const QString directory = QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/rename-ui-review");
+                    const QString directory = visualOutputPath("rename-ui-review");
                     QDir().mkpath(directory);
                     passed &= expect(dialog->grab().save(QDir(directory).filePath(
                         QString("help-%1.png").arg(qRound(dialog->devicePixelRatioF() * 100)))),
@@ -2951,7 +3216,7 @@ int main(int argc, char* argv[])
             "A pending preview must not be executable.");
         renameDialog.show();
         if (application.arguments().contains("--capture-rename-dialogs")) {
-            const QString captureDirectory = QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/rename-ui-review");
+            const QString captureDirectory = visualOutputPath("rename-ui-review");
             QDir().mkpath(captureDirectory);
             passed &= expect(renameDialog.grab().save(QDir(captureDirectory).filePath(
                     QString("pending-%1.png").arg(qRound(renameDialog.devicePixelRatioF() * 100)))),
@@ -2986,7 +3251,7 @@ int main(int argc, char* argv[])
             const auto capture = [&](const QString& name) {
                 if (!application.arguments().contains("--capture-rename-dialogs"))
                     return;
-                const QString directory = QDir(FILE_MANAGER_SOURCE_DIR).filePath("out/rename-ui-review");
+                const QString directory = visualOutputPath("rename-ui-review");
                 QDir().mkpath(directory);
                 passed &= expect(renameDialog.grab().save(QDir(directory).filePath(
                     name + QString("-%1.png").arg(qRound(renameDialog.devicePixelRatioF() * 100)))),

@@ -150,6 +150,8 @@ FileSearchDialog::FileSearchDialog(const QString& initialRoot,
     state_->historyDisclosure->setWordWrap(true);
     state_->scopeDisclosure->setObjectName("FileSearchScope");
     state_->scopeDisclosure->setAccessibleName("Current Windows Search scope");
+    state_->scopeDisclosure->setTextFormat(Qt::PlainText);
+    state_->scopeDisclosure->setWordWrap(true);
     state_->scopeDisclosure->setTextInteractionFlags(Qt::TextSelectableByKeyboard
         | Qt::TextSelectableByMouse);
     state_->advancedDisclosure->setObjectName("FileSearchAqsDisclosure");

@@ -62,6 +62,7 @@ void applyApplicationTheme(QApplication& application)
         : settings.density == "Comfortable" ? 6 : 5;
     const int itemPadding = settings.density == "Spacious" ? 7
         : settings.density == "Comfortable" ? 5 : 4;
+    const int indicatorSize = qBound(14, static_cast<int>(basePointSize * 1.25 + 0.5), 24);
     if (accessibility.highContrast) {
         // Let the native Windows style and palette carry the user's system colors. Even an
         // apparently color-neutral Qt stylesheet can suppress High Contrast rendering.
@@ -87,9 +88,12 @@ void applyApplicationTheme(QApplication& application)
         QMenuBar { background:#0d0e11; border-bottom:1px solid #25262b; padding:2px 6px; }
         QMenuBar::item { padding:5px 9px; border-radius:4px; }
         QMenuBar::item:selected { background:#26272d; }
-        QToolBar { background:#111216; border:0; border-bottom:1px solid #25262b; padding:6px 10px; spacing:4px; }
+        QToolBar { background:#111216; border:0; padding:6px 10px; spacing:4px; }
         QToolBar::separator { background:#2a2c34; width:1px; margin:5px 7px; }
         QToolButton, QPushButton { background:transparent; border:1px solid transparent; border-radius:6px; padding:%2px 8px; }
+        QCheckBox::indicator, QRadioButton::indicator { width:%7px; height:%7px; }
+        QCheckBox::indicator:unchecked { background:#1a1d26; border:1px solid #777b87; border-radius:3px; }
+        QRadioButton::indicator:unchecked { background:#1a1d26; border:1px solid #777b87; border-radius:12px; }
         QToolButton:hover, QPushButton:hover { background:#27282e; border-color:#34353c; }
         QToolButton#BreadcrumbSegment { padding-right:26px; border-color:transparent; }
         QToolButton#BreadcrumbSegment::menu-button { width:24px; border:0; border-radius:4px; background:transparent; }
@@ -107,7 +111,7 @@ void applyApplicationTheme(QApplication& application)
         QLabel#Title { font-size:%4pt; font-weight:600; }
         QLabel#Muted { color:#898c96; }
         QLabel#EmptyFolderGuidance { color:#aeb2bf; background:rgba(23,24,28,220); border:1px solid #31343e; border-radius:12px; padding:28px; font-size:%5pt; }
-        QLabel#Section { color:#777a84; font-size:%6pt; font-weight:600; padding:12px 8px 3px 8px; }
+        QLabel#Section { color:#80838d; font-size:%6pt; font-weight:600; padding:12px 8px 3px 8px; }
         QTreeWidget#QuickAccess { background:#111216; border:0; outline:0; padding:4px; }
         QTreeWidget#QuickAccess::item { border-radius:4px; padding:5px 5px; margin:1px 2px; }
         QTreeWidget#QuickAccess::item:hover { background:#25262b; }
@@ -124,7 +128,8 @@ void applyApplicationTheme(QApplication& application)
         QScrollBar::handle:vertical { background:#373a44; border-radius:5px; min-height:28px; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
     )").arg(basePointSize).arg(controlPadding).arg(itemPadding)
-        .arg(titlePointSize).arg(guidancePointSize).arg(sectionPointSize));
+        .arg(titlePointSize).arg(guidancePointSize).arg(sectionPointSize)
+        .arg(indicatorSize));
 }
 
 } // namespace filemanager::ui

@@ -1,4 +1,5 @@
 #include "ui/navigationtree.h"
+#include "ui/applicationtheme.h"
 
 #include "platform/knownfolders.h"
 
@@ -130,11 +131,11 @@ void NavigationTree::rebuild(const QStringList& recentPaths,
         auto* item = new QTreeWidgetItem(this, {label});
         item->setData(0, KindRole, kind);
         item->setFlags(Qt::ItemIsEnabled);
-        QFont font = item->font(0);
-        font.setPointSize(8);
+        QFont font = this->font();
         font.setBold(true);
         item->setFont(0, font);
-        item->setForeground(0, QColor(QStringLiteral("#777a84")));
+        if (!applicationHighContrastEnabled())
+            item->setForeground(0, QColor(QStringLiteral("#80838d")));
         item->setExpanded(true);
         return item;
     };

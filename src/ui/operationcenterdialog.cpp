@@ -50,6 +50,7 @@ OperationCenterDialog::OperationCenterDialog(files::TransferQueue* transferQueue
     summary_ = new QLabel(this);
     summary_->setObjectName("OperationCenterSummary");
     summary_->setAccessibleName("Operation center summary");
+    summary_->setWordWrap(true);
     layout->addWidget(summary_);
     tabs_ = new QTabWidget(this);
     tabs_->setObjectName("OperationCenterTabs");
@@ -62,7 +63,13 @@ OperationCenterDialog::OperationCenterDialog(files::TransferQueue* transferQueue
     transfers_->setColumnCount(6);
     transfers_->setHorizontalHeaderLabels(
         {"ID", "Operation", "State", "Items", "Destination", "Started"});
-    transfers_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    for (int column : {0, 1, 2, 3, 5})
+        transfers_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    transfers_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Interactive);
+    transfers_->setColumnWidth(4, qMax(180,
+        transfers_->horizontalHeader()->fontMetrics().horizontalAdvance("Destination") + 24));
+    transfers_->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    transfers_->setTextElideMode(Qt::ElideMiddle);
     transfers_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     transfers_->setSelectionBehavior(QAbstractItemView::SelectRows);
     transfersLayout->addWidget(transfers_, 1);
@@ -101,7 +108,13 @@ OperationCenterDialog::OperationCenterDialog(files::TransferQueue* transferQueue
     recovery_->setAccessibleName("Recoverable interrupted operations");
     recovery_->setColumnCount(4);
     recovery_->setHorizontalHeaderLabels({"Operation", "Items", "Destination", "Last activity"});
-    recovery_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    for (int column : {0, 1, 3})
+        recovery_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    recovery_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+    recovery_->setColumnWidth(2, qMax(180,
+        recovery_->horizontalHeader()->fontMetrics().horizontalAdvance("Destination") + 24));
+    recovery_->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    recovery_->setTextElideMode(Qt::ElideMiddle);
     recovery_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     recovery_->setSelectionBehavior(QAbstractItemView::SelectRows);
     recoveryLayout->addWidget(recovery_, 1);
@@ -172,8 +185,10 @@ void OperationCenterDialog::populate()
         transfers_->setItem(row, 2, state);
         transfers_->setItem(row, 3,
             new QTableWidgetItem(QLocale().toString(record.request.sources.size())));
-        transfers_->setItem(row, 4,
-            new QTableWidgetItem(QDir::toNativeSeparators(record.request.destinationDirectory)));
+        auto* destination = new QTableWidgetItem(
+            QDir::toNativeSeparators(record.request.destinationDirectory));
+        destination->setToolTip(destination->text());
+        transfers_->setItem(row, 4, destination);
         transfers_->setItem(row, 5,
             new QTableWidgetItem(localizedDateTime(record.startedAt)));
     }
@@ -184,8 +199,10 @@ void OperationCenterDialog::populate()
             record.request.operation == files::TransferOperation::Move ? "Move" : "Copy"));
         recovery_->setItem(row, 1,
             new QTableWidgetItem(QLocale().toString(record.request.sources.size())));
-        recovery_->setItem(row, 2,
-            new QTableWidgetItem(QDir::toNativeSeparators(record.request.destinationDirectory)));
+        auto* destination = new QTableWidgetItem(
+            QDir::toNativeSeparators(record.request.destinationDirectory));
+        destination->setToolTip(destination->text());
+        recovery_->setItem(row, 2, destination);
         const QDateTime activity = record.finishedAt.isValid() ? record.finishedAt
             : record.startedAt.isValid() ? record.startedAt : record.queuedAt;
         recovery_->setItem(row, 3, new QTableWidgetItem(localizedDateTime(activity)));

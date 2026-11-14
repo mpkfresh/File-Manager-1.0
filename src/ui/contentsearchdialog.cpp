@@ -59,7 +59,9 @@ ContentSearchDialog::ContentSearchDialog(const QString& searchRoot, QWidget* par
     state_->query->setObjectName("ContentSearchQuery");
     state_->query->setPlaceholderText("Text inside files");
     state_->extension->setObjectName("ContentSearchExtension");
-    state_->extension->setPlaceholderText("Extension (optional)");
+    state_->extension->setPlaceholderText("Ext. (optional)");
+    state_->extension->setAccessibleName("Optional file extension filter");
+    state_->extension->setToolTip("Filter results by file extension (optional)");
     state_->extension->setMaximumWidth(180);
     searchButton->setObjectName("ContentSearchStart");
     cancelButton->setObjectName("ContentSearchCancel");

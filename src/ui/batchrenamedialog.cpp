@@ -10,6 +10,7 @@
 #include <QFormLayout>
 #include <QHash>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -134,15 +135,30 @@ BatchRenameDialog::BatchRenameDialog(const QStringList& paths, QWidget* parent)
     preparation_->initialPaths = paths;
     setWindowTitle("Batch rename");
     resize(860, 650);
-    auto* root = new QVBoxLayout(this);
-    auto* modeRow = new QFormLayout;
+    auto* outer = new QVBoxLayout(this);
+    auto* bodyScroll = new QScrollArea(this);
+    bodyScroll->setObjectName("RenameBodyScroll");
+    bodyScroll->setFrameShape(QFrame::NoFrame);
+    bodyScroll->setWidgetResizable(true);
+    bodyScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* body = new QWidget(bodyScroll);
+    auto* root = new QVBoxLayout(body);
+    bodyScroll->setWidget(body);
+    outer->addWidget(bodyScroll, 1);
+    auto* modeRow = new QHBoxLayout;
     mode_ = new QComboBox(this);
     mode_->setObjectName("RenameMode");
     mode_->addItems({"Numbered names", "Names from list", "Rules"});
-    modeRow->addRow("Naming method", mode_);
+    auto* modeLabel = new QLabel("Naming method", this);
+    modeLabel->setObjectName("RenameModeLabel");
+    modeLabel->setMinimumWidth(modeLabel->fontMetrics().horizontalAdvance(
+        modeLabel->text()) + 12);
+    modeRow->addWidget(modeLabel);
+    modeRow->addWidget(mode_, 1);
     root->addLayout(modeRow);
 
     auto* pages = new QStackedWidget(this);
+    pages->setObjectName("RenamePages");
     const auto addPage = [pages](QWidget* page) {
         auto* scroll = new QScrollArea(pages);
         scroll->setWidgetResizable(true);
@@ -216,6 +232,7 @@ BatchRenameDialog::BatchRenameDialog(const QStringList& paths, QWidget* parent)
 
     auto* orderHint = new QLabel(
         "Preview follows selection order. Use Move up or Move down to change it.", this);
+    orderHint->setObjectName("RenameOrderHint");
     orderHint->setWordWrap(true);
     root->addWidget(orderHint);
     auto* orderBar = new QHBoxLayout;
@@ -258,7 +275,7 @@ BatchRenameDialog::BatchRenameDialog(const QStringList& paths, QWidget* parent)
     buttons_->button(QDialogButtonBox::Ok)->setObjectName("RenameApply");
     buttons_->button(QDialogButtonBox::Ok)->setAutoDefault(false);
     buttons_->button(QDialogButtonBox::Ok)->setDefault(false);
-    root->addWidget(buttons_);
+    outer->addWidget(buttons_);
     connect(buttons_, &QDialogButtonBox::accepted, this, [this] {
         if (plan_.isValid())
             accept();

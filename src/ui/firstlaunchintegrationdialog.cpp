@@ -51,7 +51,9 @@ void addContextualHelp(QVBoxLayout* body, QWidget* parent,
             detailLabel->setVisible(expanded);
             toggle->setText(expanded ? "Hide details" : "Details");
             toggle->setAccessibleName((expanded ? "Hide " : "Show ") + name + " details");
+            const int currentWidth = parent->width();
             parent->adjustSize();
+            parent->resize(currentWidth, parent->height());
         });
 }
 } // namespace
@@ -132,7 +134,11 @@ FirstLaunchIntegrationDialog::FirstLaunchIntegrationDialog(
         ? parent->screen() : QGuiApplication::primaryScreen();
     if (screen) {
         const QRect available = screen->availableGeometry();
-        const int dialogWidth = qMin(500, qMax(320, available.width() - 40));
+        const QMargins margins = body->contentsMargins();
+        const int choiceWidth = folders_->sizeHint().width()
+            + margins.left() + margins.right() + 12;
+        const int dialogWidth = qMin(qMax(500, choiceWidth),
+            qMax(320, available.width() - 40));
         setMinimumWidth(dialogWidth);
         resize(dialogWidth, sizeHint().height());
     }

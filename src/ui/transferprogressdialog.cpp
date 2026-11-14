@@ -179,6 +179,8 @@ TransferProgressDialog::TransferProgressDialog(bool move, const QStringList& sou
 
     summary_ = new QLabel(QStringLiteral("Calculating transfer size…"), this);
     summary_->setObjectName("TransferProgressSummary");
+    summary_->setWordWrap(true);
+    summary_->setMinimumWidth(0);
     root->addWidget(summary_);
 
     detailsScroll_ = new QScrollArea(this);
@@ -187,7 +189,7 @@ TransferProgressDialog::TransferProgressDialog(bool move, const QStringList& sou
     detailsScroll_->setWidgetResizable(true);
     detailsScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     detailsScroll_->setMinimumHeight(0);
-    detailsScroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    detailsScroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
     details_ = new QWidget(detailsScroll_);
     details_->setObjectName("TransferDetailsPanel");
     auto* detailsLayout = new QVBoxLayout(details_);

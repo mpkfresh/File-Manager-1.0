@@ -11,7 +11,10 @@
 #include <QImageReader>
 #include <QLabel>
 #include <QLocale>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSizePolicy>
+#include <QTextOption>
 #include <QVBoxLayout>
 
 namespace filemanager::ui {
@@ -37,11 +40,34 @@ QWidget* itemCard(const QString& heading, const ConflictItemInfo& item, QWidget*
         layout->addWidget(preview, row++, 0, 1, 2);
     }
     const auto addValue = [&](const QString& label, const QString& value) {
-        auto* valueLabel = new QLabel(value, box);
-        valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        valueLabel->setWordWrap(true);
+        QWidget* valueWidget = nullptr;
+        if (label == "Name" || label == "Location") {
+            auto* text = new QPlainTextEdit(box);
+            text->setPlainText(value);
+            text->setReadOnly(true);
+            text->setTabChangesFocus(true);
+            text->setWordWrapMode(QTextOption::WrapAnywhere);
+            text->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            text->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+            text->setFrameShape(QFrame::NoFrame);
+            text->setStyleSheet("QPlainTextEdit { background:transparent; border:0; padding:0; }");
+            text->setMinimumWidth(0);
+            text->setFixedHeight(2 * text->fontMetrics().lineSpacing() + 8);
+            text->setAccessibleName(heading + " " + label.toLower());
+            text->setToolTip(value);
+            valueWidget = text;
+        } else {
+            auto* text = new QLabel(value, box);
+            text->setTextFormat(Qt::PlainText);
+            text->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            text->setWordWrap(true);
+            text->setMinimumWidth(0);
+            text->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+            text->setToolTip(value);
+            valueWidget = text;
+        }
         layout->addWidget(new QLabel(label, box), row, 0, Qt::AlignTop);
-        layout->addWidget(valueLabel, row++, 1);
+        layout->addWidget(valueWidget, row++, 1);
     };
     addValue(QStringLiteral("Name"), item.name);
     addValue(QStringLiteral("Location"), QDir::toNativeSeparators(item.path));
