@@ -1134,6 +1134,7 @@ void MainWindow::showHelpBrowser()
     layout->addWidget(topics, 1);
     auto* hint = new QLabel("Enter  Open selected guide     Esc  Close", &dialog);
     hint->setObjectName("Muted");
+    hint->setWordWrap(true);
     layout->addWidget(hint);
     const QList<QPair<QString, QString>> entries = {
         {"Getting Started", "Navigation, tabs, searching and safe everyday actions."},
@@ -1151,7 +1152,8 @@ void MainWindow::showHelpBrowser()
                 continue;
             auto* item = new QListWidgetItem(entry.first + "\n" + entry.second, topics);
             item->setData(Qt::UserRole, index);
-            item->setSizeHint(QSize(0, 48));
+            item->setSizeHint(QSize(0, qMax(48,
+                topics->fontMetrics().lineSpacing() * 2 + 14)));
         }
         if (topics->count())
             topics->setCurrentRow(0);
@@ -3899,6 +3901,7 @@ void MainWindow::showCommandPalette()
     layout->addWidget(noResults);
     auto* hint = new QLabel("↑ ↓  Navigate     Enter  Run command     Esc  Close", &dialog);
     hint->setObjectName("Muted");
+    hint->setWordWrap(true);
     layout->addWidget(hint);
 
     const QHash<QString, QString> summaries = {
