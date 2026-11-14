@@ -7,6 +7,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSettings>
 #include <QStringList>
 #include <QToolButton>
@@ -66,11 +67,19 @@ FirstLaunchIntegrationDialog::FirstLaunchIntegrationDialog(
     setWindowTitle("Choose how folders open");
     setModal(true);
 
-    auto* body = new QVBoxLayout(this);
+    auto* outer = new QVBoxLayout(this);
+    outer->setSpacing(9);
+    auto* scroll = new QScrollArea(this);
+    scroll->setObjectName("FirstLaunchChoicesScroll");
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* content = new QWidget(scroll);
+    auto* body = new QVBoxLayout(content);
     body->setSpacing(9);
     body->addWidget(explanation("Select either choice, or keep Windows as it is.", this));
 
-    folders_ = new QCheckBox("Open supported folders and drives in File Manager", this);
+    folders_ = new QCheckBox("Open folders and drives in File Manager", this);
     folders_->setObjectName("FirstLaunchFolders");
     folders_->setAccessibleName("Open supported folders and drives with File Manager");
     folders_->setEnabled(folders.canEnable && folders.state == platform::FolderRoutingState::Off);
@@ -113,7 +122,9 @@ FirstLaunchIntegrationDialog::FirstLaunchIntegrationDialog(
     buttons->addWidget(later);
     buttons->addStretch();
     buttons->addWidget(apply_);
-    body->addLayout(buttons);
+    scroll->setWidget(content);
+    outer->addWidget(scroll, 1);
+    outer->addLayout(buttons);
     connect(later, &QPushButton::clicked, this, &QDialog::reject);
     connect(apply_, &QPushButton::clicked, this, &QDialog::accept);
     connect(folders_, &QCheckBox::toggled, this, [this] {
@@ -139,8 +150,13 @@ FirstLaunchIntegrationDialog::FirstLaunchIntegrationDialog(
             + margins.left() + margins.right() + 12;
         const int dialogWidth = qMin(qMax(500, choiceWidth),
             qMax(320, available.width() - 40));
+        const int availableHeight = qMax(320, available.height() - 64);
+        const QMargins outerMargins = outer->contentsMargins();
+        const int desiredHeight = body->sizeHint().height() + buttons->sizeHint().height()
+            + outerMargins.top() + outerMargins.bottom() + outer->spacing();
         setMinimumWidth(dialogWidth);
-        resize(dialogWidth, sizeHint().height());
+        setMaximumHeight(availableHeight);
+        resize(dialogWidth, qMin(desiredHeight, availableHeight));
     }
 }
 

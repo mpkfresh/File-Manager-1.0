@@ -68,6 +68,7 @@
 #include <QPushButton>
 #include <QPainter>
 #include <QProxyStyle>
+#include <QScreen>
 #include <QStandardItemModel>
 #include <QStandardPaths>
 #include <QThreadPool>
@@ -766,6 +767,7 @@ bool verifyFirstLaunchOffer(const QString& capturePath = {})
     auto* keepWindows = offer.findChild<QPushButton*>("FirstLaunchNotNow");
     auto* winEHelp = offer.findChild<QToolButton*>("WinEHelpToggle");
     auto* winEHelpText = offer.findChild<QLabel*>("WinEHelpText");
+    auto* choicesScroll = offer.findChild<QScrollArea*>("FirstLaunchChoicesScroll");
     auto* foldersSummary = offer.findChild<QLabel*>("FoldersSummary");
     auto* winESummary = offer.findChild<QLabel*>("WinESummary");
     bool passed = expect(useFolders && useWinE && startAtSignIn && applyChoices
@@ -795,13 +797,32 @@ bool verifyFirstLaunchOffer(const QString& capturePath = {})
         passed &= expect(!winEHelpText->isHidden()
             && winEHelpText->text().contains("never records or transmits typing"),
             "Expanded help should disclose the keyboard helper's privacy behavior.");
-        passed &= expect(offer.rect().contains(
-            winEHelpText->mapTo(&offer, winEHelpText->rect().bottomRight())),
-            "Expanded help should remain inside the dialog.");
+        passed &= expect(choicesScroll && useFolders
+            && useFolders->width() >= useFolders->sizeHint().width(),
+            "The folder choice should remain readable when details require a scrollbar.");
+        const QScreen* screen = offer.screen();
+        passed &= expect(screen && offer.frameGeometry().height() <= screen->availableGeometry().height()
+            && keepWindows && applyChoices
+            && offer.rect().contains(keepWindows->mapTo(&offer, keepWindows->rect().bottomRight()))
+            && offer.rect().contains(applyChoices->mapTo(&offer, applyChoices->rect().bottomRight())),
+            "Expanded first-launch help and its choices should fit the available screen.");
         if (!capturePath.isEmpty())
             passed &= expect(offer.grab().save(
                 visualOutputPath("first-launch-ui-review-details.png")),
                 "Capture the expanded contextual help.");
+        if (choicesScroll) {
+            choicesScroll->verticalScrollBar()->setValue(
+                choicesScroll->verticalScrollBar()->maximum());
+            QApplication::processEvents();
+            passed &= expect(choicesScroll->viewport()->rect().contains(
+                winEHelpText->mapTo(choicesScroll->viewport(),
+                    winEHelpText->rect().bottomRight())),
+                "Expanded help should remain reachable by scrolling.");
+            if (!capturePath.isEmpty())
+                passed &= expect(offer.grab().save(
+                    visualOutputPath("first-launch-ui-review-details-scrolled.png")),
+                    "Capture the scrolled contextual help.");
+        }
     }
     if (useFolders && useWinE && startAtSignIn && applyChoices) {
         passed &= expect(!useFolders->isChecked() && !useWinE->isChecked()
