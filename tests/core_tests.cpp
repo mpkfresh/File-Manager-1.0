@@ -35,6 +35,7 @@
 #include <QSet>
 #include <QTemporaryDir>
 #include <QSettings>
+#include <QUuid>
 #include <iostream>
 
 #ifdef Q_OS_WIN
@@ -1256,6 +1257,8 @@ int main(int argc, char** argv)
     healthSettings.setValue("interaction/pinnedContextActions",
         QStringList{"file.copy", "file.copy"});
     healthSettings.setValue("interaction/itemSelectionCheckBoxes", "not-a-boolean");
+    healthSettings.setValue("interaction/singleClickActivation", QStringLiteral("false"));
+    healthSettings.setValue("guidance/firstRunHintShown", QStringLiteral("true"));
     healthSettings.setValue("navigation/openTo", "somewhere-else");
     healthSettings.setValue("shortcuts/file.copy", "Ctrl+C");
     healthSettings.setValue("shortcuts/file.rename", "Ctrl+C");
@@ -1268,6 +1271,8 @@ int main(int argc, char** argv)
             && !healthSettings.contains("navigation/recents")
             && !healthSettings.contains("search/indexedRoots")
             && !healthSettings.contains("interaction/itemSelectionCheckBoxes")
+            && healthSettings.value("interaction/singleClickActivation").toString() == "false"
+            && healthSettings.value("guidance/firstRunHintShown").toString() == "true"
             && !healthSettings.contains("navigation/openTo")
             && healthSettings.value("shortcuts/file.copy").toString() == "Ctrl+C"
             && !healthSettings.contains("shortcuts/file.rename")
@@ -1283,6 +1288,35 @@ int main(int argc, char** argv)
             && !recoveryValues.contains("relative/secret")
             && !filemanager::settings::repairSettings(healthSettings).repaired(),
         "Settings recovery markers should remain path-free and repair should be idempotent");
+
+#ifdef Q_OS_WIN
+    // Exercise the registry-backed format used by the installed application.
+    const QString registryLeaf = QStringLiteral("Software\\FileManagerTests\\SettingsHealth\\")
+        + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString nativeRegistryPath = QStringLiteral("HKEY_CURRENT_USER\\") + registryLeaf;
+    {
+        QSettings nativeSettings(nativeRegistryPath, QSettings::NativeFormat);
+        nativeSettings.setValue("interaction/itemSelectionCheckBoxes", true);
+        nativeSettings.setValue("interaction/singleClickActivation", false);
+        nativeSettings.setValue("guidance/firstRunHintShown", true);
+        nativeSettings.sync();
+        expect(nativeSettings.status() == QSettings::NoError,
+            "Native settings fixture should write successfully");
+    }
+    {
+        QSettings nativeSettings(nativeRegistryPath, QSettings::NativeFormat);
+        const auto nativeReport = filemanager::settings::repairSettings(nativeSettings);
+        expect(!nativeReport.repaired()
+                && nativeSettings.value("interaction/itemSelectionCheckBoxes").toBool()
+                && !nativeSettings.value("interaction/singleClickActivation").toBool()
+                && nativeSettings.value("guidance/firstRunHintShown").toBool(),
+            "Settings repair should preserve valid registry-backed booleans");
+    }
+    const LSTATUS registryCleanup = RegDeleteTreeW(HKEY_CURRENT_USER,
+        reinterpret_cast<const wchar_t*>(registryLeaf.utf16()));
+    expect(registryCleanup == ERROR_SUCCESS || registryCleanup == ERROR_FILE_NOT_FOUND,
+        "Native settings fixture should remove its exact registry key");
+#endif
 
     favoriteSettings.setValue("navigation/favorites", QStringList{"C:/One", "C:/Two"});
     auto favoriteGroups = filemanager::settings::loadFavoriteGroups(favoriteSettings);

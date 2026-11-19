@@ -21,7 +21,13 @@ constexpr qsizetype maximumColumnStateBytes = 256 * 1024;
 
 bool isBoolean(const QVariant& value)
 {
-    return value.metaType().id() == QMetaType::Bool;
+    if (value.metaType().id() == QMetaType::Bool)
+        return true;
+    // Native Windows QSettings reads its REG_SZ boolean values back as text.
+    // Preserve only the two canonical spellings that QSettings writes.
+    return value.metaType().id() == QMetaType::QString
+        && (value.toString() == QStringLiteral("true")
+            || value.toString() == QStringLiteral("false"));
 }
 
 void reset(QSettings& settings, const QString& key, const QString& category,
