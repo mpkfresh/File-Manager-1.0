@@ -433,6 +433,7 @@ void MainWindow::createCommands()
         QKeySequence("Shift+F6"), [this] { cycleFocusRegion(true); });
     add({"navigation.address", "Edit folder address", "Navigation", {"path", "location"}},
         QKeySequence("Ctrl+L"), [this] { if (active_) active_->focusLocation(); });
+    addAction(commands_->action("navigation.address"));
     add({"navigation.goto", "Go to folder", "GoTo", {"path", "location", "fuzzy"}}, {},
         [this] { showGoTo(); });
     add({"navigation.home", "Open Home", "Navigation",

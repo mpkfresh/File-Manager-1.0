@@ -1735,13 +1735,17 @@ int main(int argc, char* argv[])
         if (pane)
             pane->navigate(nestedFolder);
         QAction* editAddress = addressWindow.findChild<QAction*>("navigation.address");
-        if (editAddress)
-            editAddress->trigger();
         auto* integratedBar = pane
             ? pane->findChild<filemanager::ui::BreadcrumbBar*>("BreadcrumbAddressBar") : nullptr;
+        if (pane) {
+            pane->view()->setFocus();
+            QKeyEvent ctrlL(QEvent::KeyPress, Qt::Key_L, Qt::ControlModifier);
+            QApplication::sendEvent(pane->view(), &ctrlL);
+            QApplication::processEvents();
+        }
         passed &= expect(editAddress && pane && integratedBar && integratedBar->isEditing()
                 && waitForFocus(integratedBar->editor()),
-            "Ctrl+L's command should enter exact-path editing in the active pane.");
+            "Ctrl+L should enter exact-path editing from the active file view.");
         const int panesBeforeBackgroundOpen = addressWindow.findChildren<FilePane*>().size();
         if (pane)
             emit pane->backgroundTabRequested(fixture.filePath("Projects"));
