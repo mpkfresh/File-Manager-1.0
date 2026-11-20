@@ -433,7 +433,6 @@ void MainWindow::createCommands()
         QKeySequence("Shift+F6"), [this] { cycleFocusRegion(true); });
     add({"navigation.address", "Edit folder address", "Navigation", {"path", "location"}},
         QKeySequence("Ctrl+L"), [this] { if (active_) active_->focusLocation(); });
-    addAction(commands_->action("navigation.address"));
     add({"navigation.goto", "Go to folder", "GoTo", {"path", "location", "fuzzy"}}, {},
         [this] { showGoTo(); });
     add({"navigation.home", "Open Home", "Navigation",
@@ -718,6 +717,17 @@ void MainWindow::createCommands()
         QKeySequence("Ctrl+Shift+PgDown"), [this] { workspace_->activePanel()->moveCurrentTab(1); });
     add({"panel.inspector", "Toggle inspector", "Inspector", {"preview"}}, QKeySequence("Ctrl+I"),
         [this] { preview_->setVisible(!preview_->isVisible()); });
+
+    // Commands without a permanent menu or toolbar action still need the window
+    // as a shortcut host. Context-menu proxies and the command palette do not
+    // activate their advertised key sequences while those surfaces are closed.
+    for (const char* id : {"navigation.address", "navigation.home",
+             "folder.open_new_tab", "folder.open_new_window",
+             "favorites.move_up", "favorites.move_down",
+             "panel.copy_to_other", "panel.move_to_other",
+             "tab.move_left", "tab.move_right"}) {
+        addAction(commands_->action(id));
+    }
 
     using filemanager::ui::Symbol;
     const QList<QPair<QString, Symbol>> icons = {

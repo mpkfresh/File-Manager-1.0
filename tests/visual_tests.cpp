@@ -1737,6 +1737,17 @@ int main(int argc, char* argv[])
         QAction* editAddress = addressWindow.findChild<QAction*>("navigation.address");
         auto* integratedBar = pane
             ? pane->findChild<filemanager::ui::BreadcrumbBar*>("BreadcrumbAddressBar") : nullptr;
+        bool windowShortcutsAttached = true;
+        for (const char* id : {"navigation.address", "navigation.home",
+                 "folder.open_new_tab", "folder.open_new_window",
+                 "favorites.move_up", "favorites.move_down",
+                 "panel.copy_to_other", "panel.move_to_other",
+                 "tab.move_left", "tab.move_right"}) {
+            QAction* action = addressWindow.findChild<QAction*>(id);
+            windowShortcutsAttached &= action && addressWindow.actions().contains(action);
+        }
+        passed &= expect(windowShortcutsAttached,
+            "Commands with advertised keys must be attached to the window as shortcuts.");
         if (pane) {
             pane->view()->setFocus();
             QKeyEvent ctrlL(QEvent::KeyPress, Qt::Key_L, Qt::ControlModifier);
