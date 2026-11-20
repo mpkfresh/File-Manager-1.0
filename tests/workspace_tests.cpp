@@ -109,6 +109,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTableWidget>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QThread>
 #include <QThreadPool>
@@ -2517,7 +2518,9 @@ int main(int argc, char* argv[])
     shellSessionPanel.currentPane()->navigateBuiltInShell(BuiltInShellLocation::ThisPc);
     FilePane* duplicatedBuiltIn = shellSessionPanel.duplicateCurrentTab();
     const bool duplicatedBuiltInOk = duplicatedBuiltIn
-        && duplicatedBuiltIn->builtInShellLocation() == BuiltInShellLocation::ThisPc;
+        && duplicatedBuiltIn->builtInShellLocation() == BuiltInShellLocation::ThisPc
+        && shellSessionPanel.tabBar()->tabText(shellSessionPanel.currentIndex()) == "This PC"
+        && shellSessionPanel.tabBar()->tabToolTip(shellSessionPanel.currentIndex()) == "This PC";
     shellSessionPanel.closeCurrentTab();
     FilePane* reopenedBuiltIn = shellSessionPanel.reopenLastClosedTab();
     TabbedPanel restoredBuiltIns(shellItemRoot.path(), nullptr, false);
@@ -2532,8 +2535,11 @@ int main(int argc, char* argv[])
             && restoredBuiltIns.panes().at(1)->builtInShellLocation()
                 == BuiltInShellLocation::Libraries
             && restoredBuiltIns.panes().at(2)->builtInShellLocation()
-                == BuiltInShellLocation::RecycleBin,
-        "Built-in Windows destinations should survive duplicate, close/reopen and layout restore.");
+                == BuiltInShellLocation::RecycleBin
+            && restoredBuiltIns.tabBar()->tabText(0) == "This PC"
+            && restoredBuiltIns.tabBar()->tabText(1) == "Libraries"
+            && restoredBuiltIns.tabBar()->tabText(2) == "Recycle Bin",
+        "Built-in Windows destinations should survive duplicate, close/reopen and layout restore with readable tab titles.");
     TabbedPanel arbitraryShellSessionPanel(shellItemRoot.path());
     arbitraryShellSessionPanel.currentPane()->navigateShellItem(thisPcShellItem);
     passed &= expect(arbitraryShellSessionPanel.paths() == QStringList{shellItemRoot.path()},

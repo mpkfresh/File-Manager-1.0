@@ -512,8 +512,12 @@ void TabbedPanel::updateTabTitle(FilePane* pane, const QString& path)
     if (index < 0)
         return;
     QString title;
-    if (pane && !pane->isFileSystemLocation()) {
-        title = path.trimmed();
+    if (pane && pane->isHomeLocation()) {
+        title = QStringLiteral("Home");
+    } else if (pane && !pane->isFileSystemLocation()) {
+        title = pane->currentShellLocation().displayName.trimmed();
+        if (title.isEmpty() && !path.startsWith("filemanager:shell:", Qt::CaseInsensitive))
+            title = path.trimmed();
     } else {
         QFileInfo info(path);
         title = info.fileName();
@@ -524,5 +528,5 @@ void TabbedPanel::updateTabTitle(FilePane* pane, const QString& path)
         title = QStringLiteral("Windows location");
     tabs_->setTabText(index, title);
     tabs_->setTabToolTip(index, pane && !pane->isFileSystemLocation()
-        ? pane->currentLocation() : QDir::toNativeSeparators(path));
+        ? title : QDir::toNativeSeparators(path));
 }

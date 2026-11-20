@@ -1703,6 +1703,19 @@ int main(int argc, char* argv[])
                 && restoredHomeTabs.currentPane()->isHomeLocation()
                 && savedSearchDialog.activateSavedSearch(QStringLiteral("home-search")),
             "Home should survive tab duplication, close/reopen and layout restore, and open saved searches.");
+#ifdef Q_OS_WIN
+        TabbedPanel shellTabs(fixture.path());
+        shellTabs.currentPane()->navigateBuiltInShell(
+            filemanager::platform::BuiltInShellLocation::RecycleBin);
+        FilePane* duplicatedShell = shellTabs.duplicateCurrentTab();
+        const int duplicatedShellIndex = shellTabs.currentIndex();
+        passed &= expect(duplicatedShell
+                && duplicatedShell->builtInShellLocation()
+                    == filemanager::platform::BuiltInShellLocation::RecycleBin
+                && shellTabs.tabBar()->tabText(duplicatedShellIndex) == "Recycle Bin"
+                && shellTabs.tabBar()->tabToolTip(duplicatedShellIndex) == "Recycle Bin",
+            "Duplicating a Recycle Bin tab should show its display name, never its internal identity.");
+#endif
         homeSettings.remove(QStringLiteral("navigation/favoriteGroups"));
         homeSettings.remove(QStringLiteral("navigation/recents"));
         homeSettings.sync();
