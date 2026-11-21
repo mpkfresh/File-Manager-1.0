@@ -1799,6 +1799,51 @@ int main(int argc, char* argv[])
     directStartupWindow.close();
 
     {
+        MainWindow previewSwitchWindow(fixture.path());
+        previewSwitchWindow.show();
+        auto* source = previewSwitchWindow.findChild<FilePane*>();
+        auto* tabs = previewSwitchWindow.findChild<QTabBar*>("FolderTabBar");
+        auto* details = previewSwitchWindow.findChild<QWidget*>("DetailsPane");
+        auto* title = previewSwitchWindow.findChild<QLabel*>("Title");
+        auto* status = previewSwitchWindow.findChild<QStatusBar*>("ApplicationStatusBar");
+        QAction* newTab = previewSwitchWindow.findChild<QAction*>("tab.new");
+        QAction* inspector = previewSwitchWindow.findChild<QAction*>("panel.inspector");
+        if (source && tabs && details && title && status && newTab && inspector) {
+            inspector->trigger();
+            passed &= expect(details->isVisible(),
+                "The tab-switch preview fixture should show the Details pane.");
+            source->revealPath(unicodePath);
+            QElapsedTimer selectionWait;
+            selectionWait.start();
+            while (!source->selectedPaths().contains(unicodePath)
+                    && selectionWait.elapsed() < 3000) {
+                QApplication::processEvents(QEventLoop::AllEvents, 25);
+                source->revealPath(unicodePath);
+            }
+            passed &= expect(source->selectedPaths().contains(unicodePath),
+                "The preview tab fixture should select its existing file.");
+            newTab->trigger();
+            QApplication::processEvents();
+            QEventLoop previewSettle;
+            QTimer::singleShot(300, &previewSettle, &QEventLoop::quit);
+            previewSettle.exec();
+            passed &= expect(tabs->count() == 2 && tabs->currentIndex() == 1
+                    && title->text() == "Select a file"
+                    && status->currentMessage().contains("0 selected"),
+                "A new unselected tab should clear the prior tab's preview and status selection.");
+            tabs->setCurrentIndex(0);
+            QApplication::processEvents();
+            passed &= expect(title->text() != "Select a file"
+                    && status->currentMessage().contains("1 selected"),
+                "Returning to the selected tab should restore its preview and status selection.");
+        } else {
+            passed &= expect(false,
+                "The preview tab fixture requires its pane, tab bar, Details pane, status and actions.");
+        }
+        previewSwitchWindow.close();
+    }
+
+    {
         MainWindow transferWindow(fixture.path());
         auto* transferWorkspace = transferWindow.findChild<filemanager::workspace::WorkspaceView*>();
         passed &= expect(transferWorkspace != nullptr, "The window must expose its live workspace.");

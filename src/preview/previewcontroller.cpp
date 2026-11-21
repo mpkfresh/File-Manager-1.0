@@ -28,6 +28,8 @@ quint64 PreviewController::start(const QString& path)
     cancel();
     const quint64 generation = ++generation_;
     cancellation_ = std::make_shared<std::atomic_bool>(false);
+    if (path.isEmpty())
+        return generation;
     const auto cancellation = cancellation_;
     QPointer<PreviewController> guard(this);
     QThread* worker = QThread::create([guard, cancellation, generation, path] {

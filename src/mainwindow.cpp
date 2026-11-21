@@ -1399,7 +1399,12 @@ void MainWindow::setActivePane(FilePane* pane)
 {
     if (!pane)
         return;
+    const bool changed = active_ != pane;
     active_ = pane;
+    if (changed) {
+        updatePreview(active_->selectedPaths().isEmpty() ? QString{} : active_->selectedPath());
+        updateStatus();
+    }
     syncShellNavigation();
     syncViewCommands();
     syncLocationCommands();
