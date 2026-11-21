@@ -4,6 +4,7 @@ name: Reviewed Windows release build
 # the local source-manifest-to-commit guard has passed. This workflow never
 # signs or creates a release. The final unsigned package can be checked
 # without uploading it; either optional artifact upload has a fixed file list.
+# One package-mode choice prevents contradictory checkbox combinations.
 on:
   workflow_dispatch:
     inputs:
@@ -11,21 +12,17 @@ on:
         description: Full reviewed source commit ID
         required: true
         type: string
-      review_unsigned_package:
-        description: Build and upload the bounded unsigned V2 review package
+      package_mode:
+        description: Choose one package check and upload mode
         required: true
-        default: false
-        type: boolean
-      prepare_final_unsigned_package:
-        description: Build and check the unsigned 1.0 release candidate
-        required: true
-        default: false
-        type: boolean
-      upload_final_unsigned_package:
-        description: Upload the two checked final-identity unsigned files for one day
-        required: true
-        default: false
-        type: boolean
+        default: choose_mode
+        type: choice
+        options:
+          - choose_mode
+          - v1_checks_only
+          - final_check_no_upload
+          - final_check_and_upload_1_day
+          - preview_check_and_upload_1_day
 
 permissions: {}
 
@@ -40,6 +37,7 @@ jobs:
       - name: Require the reviewed dispatch commit
         env:
           APPROVED_COMMIT: ${{ inputs.approved_commit }}
+          PACKAGE_MODE: ${{ inputs.package_mode }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:APPROVED_COMMIT -cnotmatch '^[0-9a-fA-F]{40}$') {
@@ -48,13 +46,10 @@ jobs:
           if ($env:GITHUB_SHA.ToLowerInvariant() -cne $env:APPROVED_COMMIT.ToLowerInvariant()) {
             throw 'The dispatched workflow revision differs from the reviewed commit.'
           }
-          if ('${{ inputs.review_unsigned_package }}' -ceq 'true' -and
-              '${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
-            throw 'Preview packaging and the unsigned 1.0 release candidate are mutually exclusive.'
-          }
-          if ('${{ inputs.upload_final_unsigned_package }}' -ceq 'true' -and
-              '${{ inputs.prepare_final_unsigned_package }}' -cne 'true') {
-            throw 'Final unsigned upload requires the final package gate.'
+          if ($env:PACKAGE_MODE -cnotin @('v1_checks_only',
+              'final_check_no_upload', 'final_check_and_upload_1_day',
+              'preview_check_and_upload_1_day')) {
+            throw 'Choose an explicit package mode before running the workflow.'
           }
 
       - name: Fetch only the reviewed public commit
@@ -114,7 +109,7 @@ jobs:
           Write-Output 'Pinned Windows media build prerequisites are present.'
 
       - name: Preflight compiler-selected VC143 files for local V2 review
-        if: ${{ inputs.review_unsigned_package || inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode != 'v1_checks_only' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) `
@@ -205,7 +200,7 @@ jobs:
           Write-Output "Compiler-selected VC143 $version contains ten version-checked and hash-recorded DLLs."
 
       - name: Restore the reviewed WiX 7 tool for V2 packaging
-        if: ${{ inputs.review_unsigned_package || inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode != 'v1_checks_only' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $manifestPath = Join-Path $env:GITHUB_WORKSPACE '.config/dotnet-tools.json'
@@ -341,7 +336,7 @@ jobs:
           if ($mismatch) { throw 'Hosted Windows SDK shader bytes differ from the pinned V1 inputs.' }
 
       - name: Prepare pinned build-only Vulkan SDK
-        if: ${{ !inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'v1_checks_only' || inputs.package_mode == 'preview_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -410,7 +405,7 @@ jobs:
           Write-Output "Vulkan import library SHA-256 $libraryHash"
 
       - name: Rebuild the reviewed seven-file media candidate on the hosted runner
-        if: ${{ !inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'v1_checks_only' || inputs.package_mode == 'preview_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $toolRoot = Join-Path $env:RUNNER_TEMP 'fm-media-tools'
@@ -461,7 +456,7 @@ jobs:
           Write-Output 'Seven media candidate files built and hash-recorded on GitHub-hosted Windows; no package or artifact uploaded.'
 
       - name: Stage the seven exact V53 approved media inputs
-        if: ${{ inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'final_check_no_upload' || inputs.package_mode == 'final_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $outputRoot = Join-Path $env:RUNNER_TEMP 'fm-v53-approved-media-input'
@@ -483,7 +478,7 @@ jobs:
           Write-Output 'Staged seven exact V53 approved media inputs from the pinned source archive; no new media build or upload.'
 
       - name: Verify retained media against the V53 packaging approval
-        if: ${{ inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'final_check_no_upload' || inputs.package_mode == 'final_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $manifestPath = 'packaging/ffmpeg-1.0-v53-approved-input.json'
@@ -714,7 +709,7 @@ jobs:
           Write-Output "Qt deployment tool SHA-256 $toolHash"
 
       - name: Stage the pinned Qt compressed-video fixture for retained media
-        if: ${{ inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'final_check_no_upload' || inputs.package_mode == 'final_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $fixture = Join-Path $env:RUNNER_TEMP 'filemanager-qt-compressed-fixture.mp4'
@@ -733,7 +728,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $media = Get-Content -LiteralPath $env:FILE_MANAGER_MEDIA_RESULT -Raw |
             ConvertFrom-Json
-          if ('${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
+          if ('${{ inputs.package_mode }}' -cin @('final_check_no_upload',
+              'final_check_and_upload_1_day')) {
             if ($media.schema -cne 'file-manager-approved-retained-media-input-v1' -or
                 $media.status -cne 'approved-retained-input' -or
                 $media.packagingInputApproved -ne $true) {
@@ -814,7 +810,8 @@ jobs:
             }
             Write-Output "$label passed; raw stdout/stderr stay on the runner."
           }
-          $mp4 = if ('${{ inputs.prepare_final_unsigned_package }}' -ceq 'true') {
+          $mp4 = if ('${{ inputs.package_mode }}' -cin @('final_check_no_upload',
+              'final_check_and_upload_1_day')) {
             Join-Path $env:RUNNER_TEMP 'filemanager-qt-compressed-fixture.mp4'
           } else {
             Join-Path $env:RUNNER_TEMP 'fm-media-build/sources/qt/qtmultimedia-everywhere-src-6.11.2/tests/auto/integration/qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4'
@@ -900,7 +897,7 @@ jobs:
           Write-Output "Recorded $($present.Count) of 58 release paths in a local review-only manifest."
 
       - name: Build and verify the unsigned V2 preview package
-        if: ${{ inputs.review_unsigned_package }}
+        if: ${{ inputs.package_mode == 'preview_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $resultText = & ./tools/Run-HostedUnsignedPreviewPackageGate.ps1 `
@@ -921,7 +918,7 @@ jobs:
           Write-Output "Unsigned V2 review package passed locally: MSI $($result.msiSha256); portable $($result.portableSha256); notice $($result.noticeSha256); total bytes $($result.artifactTotalBytes)."
 
       - name: Upload the three bounded unsigned review files for one day
-        if: ${{ inputs.review_unsigned_package }}
+        if: ${{ inputs.package_mode == 'preview_check_and_upload_1_day' }}
         id: upload_unsigned_review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -936,7 +933,7 @@ jobs:
           include-hidden-files: false
 
       - name: Build and verify the unsigned 1.0 release candidate
-        if: ${{ inputs.prepare_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'final_check_no_upload' || inputs.package_mode == 'final_check_and_upload_1_day' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $resultText = & ./tools/Run-HostedFinalUnsignedPackageGate.ps1 `
@@ -968,7 +965,7 @@ jobs:
           Write-Output "Unsigned 1.0 release candidate passed locally: retained media input $($result.mediaInputResultSha256); MSI $($result.msiSha256); portable $($result.portableSha256); total bytes $($result.artifactTotalBytes)."
 
       - name: Upload two bounded unsigned release-candidate files for one day
-        if: ${{ inputs.prepare_final_unsigned_package && inputs.upload_final_unsigned_package }}
+        if: ${{ inputs.package_mode == 'final_check_and_upload_1_day' }}
         id: upload_unsigned_signing_input
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
