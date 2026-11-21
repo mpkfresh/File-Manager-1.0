@@ -119,10 +119,14 @@ void applyApplicationTheme(QApplication& application)
         QTreeWidget#QuickAccess::item { border-radius:4px; padding:5px 5px; margin:1px 2px; }
         QTreeWidget#QuickAccess::item:hover { background:#25262b; }
         QTreeWidget#QuickAccess::item:selected { background:#30323a; color:#fff; }
+        QWidget#DetailsPane { border:2px solid transparent; }
+        QWidget#DetailsPane:focus { border-color:#aeb8ff; }
         QTabWidget::pane { border:0; }
-        QTabBar::tab { background:#15171e; color:#9da4b6; padding:9px 18px; border-radius:7px; margin:3px; }
+        QTabBar::tab { background:#15171e; color:#9da4b6; padding:7px 16px; border:2px solid transparent; border-radius:7px; margin:3px; }
         QTabBar::tab:selected { background:#29243d; color:#ffffff; }
-        QStatusBar { background:#111216; color:#858892; border-top:1px solid #25262b; min-height:20px; }
+        QTabBar::tab:selected:focus { border-color:#aeb8ff; }
+        QStatusBar { background:#111216; color:#858892; border-top:2px solid #25262b; min-height:20px; }
+        QStatusBar:focus { background:#242630; border-top-color:#aeb8ff; }
         QMenu { background:#191b23; border:1px solid #303441; padding:5px; }
         QMenu::item { padding:7px 26px 7px 10px; border-radius:5px; }
         QMenu::item:selected { background:#6549d8; }

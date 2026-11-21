@@ -1942,9 +1942,13 @@ int main(int argc, char* argv[])
             inspector->trigger();
             QApplication::processEvents();
             content->setFocus();
+            QApplication::processEvents();
+            const QImage detailsWithoutFocus = details->grab().toImage();
             focusNext->trigger();
             passed &= expect(waitForFocus(details),
                 "A visible Details pane should join the F6 cycle after content.");
+            passed &= expect(detailsWithoutFocus != details->grab().toImage(),
+                "The Details pane must visibly distinguish F6 focus from surrounding panes.");
             focusNext->trigger();
             passed &= expect(waitForFocus(status),
                 "The status bar should follow a visible Details pane.");
@@ -1964,10 +1968,12 @@ int main(int argc, char* argv[])
             QWidget* homeContent = pane->contentFocusTarget();
             tabs->setFocus();
             QApplication::processEvents();
+            const QImage tabsWithFocus = tabs->grab().toImage();
             const QImage homeWithoutFocus = homeContent->grab().toImage();
             const QImage navigationWithoutFocus = navigation->grab().toImage();
             focusNext->trigger();
             const bool homeContentFocused = waitForFocus(homeContent);
+            const QImage tabsWithoutFocus = tabs->grab().toImage();
             const QImage homeWithFocus = homeContent->grab().toImage();
             focusNext->trigger();
             const bool homeNavigationFocused = waitForFocus(navigation);
@@ -1979,6 +1985,16 @@ int main(int argc, char* argv[])
                     && homeWithoutFocus != homeWithFocus
                     && navigationWithoutFocus != navigationWithFocus,
                 "Home content and navigation must visibly distinguish F6 focus from selection.");
+            status->setFocus();
+            QApplication::processEvents();
+            const QImage statusWithFocus = status->grab().toImage();
+            tabs->setFocus();
+            QApplication::processEvents();
+            const QImage statusWithoutFocus = status->grab().toImage();
+            passed &= expect(tabsWithFocus != tabsWithoutFocus,
+                "Folder tabs must visibly distinguish F6 focus from selection.");
+            passed &= expect(statusWithFocus != statusWithoutFocus,
+                "The status bar must visibly distinguish F6 focus from surrounding panes.");
 
             pane->navigate(fixture.path());
             QElapsedTimer restoreWait;
