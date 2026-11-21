@@ -1958,17 +1958,27 @@ int main(int argc, char* argv[])
                 "A hidden navigation pane should be omitted from region cycling.");
             navigationPane->trigger();
 
+            QSettings().setValue("navigation/recents", QStringList{fixture.path()});
             pane->navigateHome();
             QApplication::processEvents();
             QWidget* homeContent = pane->contentFocusTarget();
             tabs->setFocus();
+            QApplication::processEvents();
+            const QImage homeWithoutFocus = homeContent->grab().toImage();
+            const QImage navigationWithoutFocus = navigation->grab().toImage();
             focusNext->trigger();
             const bool homeContentFocused = waitForFocus(homeContent);
+            const QImage homeWithFocus = homeContent->grab().toImage();
             focusNext->trigger();
             const bool homeNavigationFocused = waitForFocus(navigation);
+            const QImage navigationWithFocus = navigation->grab().toImage();
             focusNext->trigger();
             passed &= expect(homeContentFocused && homeNavigationFocused && waitForFocus(tabs),
                 "Home should follow File Explorer's tabs, content, navigation F6 cycle.");
+            passed &= expect(qobject_cast<QAbstractItemView*>(homeContent)
+                    && homeWithoutFocus != homeWithFocus
+                    && navigationWithoutFocus != navigationWithFocus,
+                "Home content and navigation must visibly distinguish F6 focus from selection.");
 
             pane->navigate(fixture.path());
             QElapsedTimer restoreWait;

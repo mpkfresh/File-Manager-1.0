@@ -102,7 +102,9 @@ void applyApplicationTheme(QApplication& application)
         QToolButton#BreadcrumbOverflow::menu-indicator { image:none; width:0px; }
         QLineEdit { background:#17181c; border:1px solid #313238; border-radius:4px; padding:6px 8px; selection-background-color:#5b63d3; }
         QLineEdit:focus { border-color:#6c72d9; }
-        QTreeView { background:#101115; border:0; alternate-background-color:#131419; outline:0; }
+        QTreeView { background:#101115; border:2px solid transparent; alternate-background-color:#131419; outline:0; }
+        QTreeView:focus, QListView:focus { border-color:#aeb8ff; }
+        QListView { border:2px solid transparent; }
         QTreeView::item { padding:%3px 4px; border:0; }
         QTreeView::item:hover { background:#202126; }
         QTreeView::item:selected { background:#3b3f73; }
@@ -112,7 +114,8 @@ void applyApplicationTheme(QApplication& application)
         QLabel#Muted { color:#898c96; }
         QLabel#EmptyFolderGuidance { color:#aeb2bf; background:rgba(23,24,28,220); border:1px solid #31343e; border-radius:12px; padding:28px; font-size:%5pt; }
         QLabel#Section { color:#80838d; font-size:%6pt; font-weight:600; padding:12px 8px 3px 8px; }
-        QTreeWidget#QuickAccess { background:#111216; border:0; outline:0; padding:4px; }
+        QTreeWidget#QuickAccess { background:#111216; border:2px solid transparent; outline:0; padding:4px; }
+        QTreeWidget#QuickAccess:focus { border-color:#aeb8ff; }
         QTreeWidget#QuickAccess::item { border-radius:4px; padding:5px 5px; margin:1px 2px; }
         QTreeWidget#QuickAccess::item:hover { background:#25262b; }
         QTreeWidget#QuickAccess::item:selected { background:#30323a; color:#fff; }
