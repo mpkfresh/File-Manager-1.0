@@ -310,9 +310,13 @@ Qt::DropActions LocalDirectoryModel::supportedDropActions() const
 void LocalDirectoryModel::setDirectory(const QString& path)
 {
     const QString absolute = QFileInfo(path).absoluteFilePath();
-    if (pathKey(absolute) == pathKey(directory_) && root_ && root_->loaded) {
-        refresh();
-        return;
+    if (pathKey(absolute) == pathKey(directory_) && root_) {
+        if (root_->loaded) {
+            refresh();
+            return;
+        }
+        if (root_->loading)
+            return;
     }
     ++rootGeneration_;
     publishTimer_.stop();
