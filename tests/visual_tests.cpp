@@ -968,8 +968,16 @@ bool verifyTransferUi(bool capture)
             QRect(0, 0, summary->width(), 10000), Qt::TextWordWrap, summary->text()) : QRect{};
         passed &= expect(summary && summary->height() >= summaryBounds.height(),
             "The expanded transfer summary should wrap without cutting off remaining time.");
-        passed &= expect(details->isVisible() && graph->isVisible()
-                && toggle->text() == "Fewer details" && dialog.width() >= 600,
+        const QScreen* transferScreen = dialog.screen();
+        const int expandedWidth = transferScreen
+            ? qMin(600, qMax(1, transferScreen->availableGeometry().width() - 24)) : 600;
+        const bool expandedFits = details->isVisible() && graph->isVisible()
+            && toggle->text() == "Fewer details" && dialog.width() >= expandedWidth;
+        if (!expandedFits)
+            std::cerr << "Expanded transfer geometry: width=" << dialog.width()
+                      << " required=" << expandedWidth << " details=" << details->isVisible()
+                      << " graph=" << graph->isVisible() << '\n';
+        passed &= expect(expandedFits,
             "Expanded transfer mode should show separate details and a speed graph.");
         if (capture) {
             const QString directory = visualOutputPath("transfer-ui-review");
@@ -3414,9 +3422,27 @@ int main(int argc, char* argv[])
             passed &= expect(!apply->isEnabled(), "Zero numbering step must be refused in the dialog.");
             renameDialog.findChild<QSpinBox*>("RenameStep")->setValue(1);
             settlePreview();
-            passed &= expect(apply->isVisible() && preview->isVisible()
-                    && renameDialog.rect().contains(apply->mapTo(&renameDialog, apply->rect().bottomRight()))
-                    && renameDialog.rect().contains(preview->mapTo(&renameDialog, preview->rect().bottomRight())),
+            auto* bodyScroll = renameDialog.findChild<QScrollArea*>("RenameBodyScroll");
+            if (bodyScroll)
+                bodyScroll->ensureWidgetVisible(preview, 0, 0);
+            QApplication::processEvents();
+            const QScreen* renameScreen = renameDialog.screen();
+            const bool renameFits = renameScreen
+                && renameDialog.frameGeometry().width() <= renameScreen->availableGeometry().width()
+                && renameDialog.frameGeometry().height() <= renameScreen->availableGeometry().height()
+                && apply->isVisible() && preview->isVisible() && bodyScroll
+                && renameDialog.rect().contains(apply->mapTo(&renameDialog, apply->rect().bottomRight()))
+                && bodyScroll->viewport()->rect().intersects(QRect(
+                    preview->mapTo(bodyScroll->viewport(), preview->rect().topLeft()), preview->size()));
+            if (!renameFits)
+                std::cerr << "Rename dialog geometry: dialog=" << renameDialog.width()
+                          << 'x' << renameDialog.height() << " screen="
+                          << (renameScreen ? renameScreen->availableGeometry().width() : 0)
+                          << 'x' << (renameScreen ? renameScreen->availableGeometry().height() : 0)
+                          << " preview=" << preview->geometry().y() << '+' << preview->height()
+                          << " scroll=" << (bodyScroll ? bodyScroll->viewport()->height() : 0)
+                          << " apply=" << apply->geometry().y() << '\n';
+            passed &= expect(renameFits,
                 "Preview and confirmation must fit the dialog at each tested display scale.");
         }
         renameDialog.reject();

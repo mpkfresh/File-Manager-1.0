@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QFormLayout>
+#include <QGuiApplication>
 #include <QHash>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -15,7 +16,9 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScreen>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -134,13 +137,14 @@ BatchRenameDialog::BatchRenameDialog(const QStringList& paths, QWidget* parent)
 {
     preparation_->initialPaths = paths;
     setWindowTitle("Batch rename");
-    resize(860, 650);
     auto* outer = new QVBoxLayout(this);
     auto* bodyScroll = new QScrollArea(this);
     bodyScroll->setObjectName("RenameBodyScroll");
     bodyScroll->setFrameShape(QFrame::NoFrame);
     bodyScroll->setWidgetResizable(true);
     bodyScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    bodyScroll->setMinimumSize(0, 0);
+    bodyScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
     auto* body = new QWidget(bodyScroll);
     auto* root = new QVBoxLayout(body);
     bodyScroll->setWidget(body);
@@ -303,6 +307,12 @@ BatchRenameDialog::BatchRenameDialog(const QStringList& paths, QWidget* parent)
     preparation_->renderTimer = new QTimer(this);
     preparation_->renderTimer->setInterval(0);
     connect(preparation_->renderTimer, &QTimer::timeout, this, &BatchRenameDialog::renderNextRows);
+    const QScreen* target = parentWidget() ? parentWidget()->screen() : screen();
+    if (!target)
+        target = QGuiApplication::primaryScreen();
+    const QSize available = target ? target->availableGeometry().size() : QSize(908, 698);
+    resize(qMin(860, qMax(1, available.width() - 48)),
+           qMin(650, qMax(1, available.height() - 48)));
     rebuildPlan();
     label_->selectAll();
     label_->setFocus();
