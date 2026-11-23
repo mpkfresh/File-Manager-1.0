@@ -1043,6 +1043,33 @@ int main(int argc, char* argv[])
     // the invariant/theme pass so captures do not repeat a global style reset.
     if (!qEnvironmentVariableIsSet("FILE_MANAGER_VISUAL_CAPTURE_ONLY"))
         passed &= verifySystemTextSizeInTheme(application);
+    if (application.arguments().contains("--status-layout-only")) {
+        MainWindow window;
+        const QScreen* desktop = window.screen();
+        const QRect available = desktop ? desktop->availableGeometry() : QRect{};
+        const bool initialWindowFits = desktop && window.width() <= available.width()
+            && window.height() <= available.height();
+        if (!initialWindowFits)
+            std::cerr << "Initial window " << window.width() << 'x' << window.height()
+                      << " available " << available.width() << 'x' << available.height() << '\n';
+        passed &= expect(initialWindowFits,
+            "The initial window must fit the available desktop before any saved layout is restored.");
+        window.show();
+        window.layout()->activate();
+        auto* status = window.findChild<QStatusBar*>("ApplicationStatusBar");
+        passed &= expect(status, "The main window must expose its status bar.");
+        if (status) {
+            auto* transient = new QPushButton("Undo batch rename", status);
+            status->addPermanentWidget(transient);
+            status->layout()->activate();
+            passed &= expect(status->height() >= transient->sizeHint().height() + 2
+                    && status->rect().contains(transient->geometry()),
+                "The status bar must contain a temporary action without clipping its text.");
+            status->removeWidget(transient);
+            delete transient;
+        }
+        return passed ? 0 : 1;
+    }
     if (application.arguments().contains("--transfer-ui-only"))
         return passed && verifyTransferUi(true) ? 0 : 1;
     if (application.arguments().contains("--first-launch-only"))
@@ -1871,6 +1898,11 @@ int main(int argc, char* argv[])
 
     std::cerr << "Visual phase: main window" << std::endl;
     MainWindow window;
+    const QScreen* startupScreen = window.screen();
+    passed &= expect(startupScreen
+            && window.width() <= startupScreen->availableGeometry().width()
+            && window.height() <= startupScreen->availableGeometry().height(),
+        "The initial window must fit the available desktop before a saved layout is restored.");
     // The reference is a fixed client-area capture. A resize before first show
     // may be clamped to the available desktop on the contained acceptance VM.
     // Keep the canonical fixture size without changing the product's sizing.
@@ -1890,6 +1922,17 @@ int main(int argc, char* argv[])
     QEventLoop settle;
     QTimer::singleShot(500, &settle, &QEventLoop::quit);
     settle.exec();
+
+    if (auto* status = window.findChild<QStatusBar*>("ApplicationStatusBar")) {
+        auto* transient = new QPushButton("Undo batch rename", status);
+        status->addPermanentWidget(transient);
+        status->layout()->activate();
+        passed &= expect(status->height() >= transient->sizeHint().height() + 2
+                && status->rect().contains(transient->geometry()),
+            "The main status bar must contain a temporary action without clipping text.");
+        status->removeWidget(transient);
+        delete transient;
+    }
 
     passed &= verifyMainToolbar(window);
 

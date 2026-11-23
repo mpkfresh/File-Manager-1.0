@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QFont>
+#include <QFontMetrics>
 #include <QPalette>
 
 #ifdef Q_OS_WIN
@@ -62,6 +63,7 @@ void applyApplicationTheme(QApplication& application)
         : settings.density == "Comfortable" ? 6 : 5;
     const int itemPadding = settings.density == "Spacious" ? 7
         : settings.density == "Comfortable" ? 5 : 4;
+    const int statusHeight = qMax(28, QFontMetrics(font).height() + 14);
     const int indicatorSize = qBound(14, static_cast<int>(basePointSize * 1.25 + 0.5), 24);
     if (accessibility.highContrast) {
         // Let the native Windows style and palette carry the user's system colors. Even an
@@ -91,6 +93,7 @@ void applyApplicationTheme(QApplication& application)
         QToolBar { background:#111216; border:0; padding:6px 10px; spacing:4px; }
         QToolBar::separator { background:#2a2c34; width:1px; margin:5px 7px; }
         QToolButton, QPushButton { background:transparent; border:1px solid transparent; border-radius:6px; padding:%2px 8px; }
+        QStatusBar QPushButton { padding:3px 8px; }
         QCheckBox::indicator, QRadioButton::indicator { width:%7px; height:%7px; }
         QCheckBox::indicator:unchecked { background:#1a1d26; border:1px solid #777b87; border-radius:3px; }
         QRadioButton::indicator:unchecked { background:#1a1d26; border:1px solid #777b87; border-radius:12px; }
@@ -125,7 +128,7 @@ void applyApplicationTheme(QApplication& application)
         QTabBar::tab { background:#15171e; color:#9da4b6; padding:7px 16px; border:2px solid transparent; border-radius:7px; margin:3px; }
         QTabBar::tab:selected { background:#29243d; color:#ffffff; }
         QTabBar::tab:selected:focus { border-color:#aeb8ff; }
-        QStatusBar { background:#111216; color:#858892; border-top:2px solid #25262b; min-height:20px; }
+        QStatusBar { background:#111216; color:#858892; border-top:2px solid #25262b; min-height:%8px; }
         QStatusBar:focus { background:#242630; border-top-color:#aeb8ff; }
         QMenu { background:#191b23; border:1px solid #303441; padding:5px; }
         QMenu::item { padding:7px 26px 7px 10px; border-radius:5px; }
@@ -136,7 +139,7 @@ void applyApplicationTheme(QApplication& application)
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
     )").arg(basePointSize).arg(controlPadding).arg(itemPadding)
         .arg(titlePointSize).arg(guidancePointSize).arg(sectionPointSize)
-        .arg(indicatorSize));
+        .arg(indicatorSize).arg(statusHeight));
 }
 
 } // namespace filemanager::ui

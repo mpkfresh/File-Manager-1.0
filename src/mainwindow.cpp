@@ -111,6 +111,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScreen>
 #include <QShortcut>
 #include <QSettings>
 #include <QSet>
@@ -243,8 +244,11 @@ MainWindow::MainWindow(const QString& initialLocation, StartupTimings* timings)
         });
     if (qApp->property("settingsRecovered").toBool())
         diagnosticLog_.record(QStringLiteral("settings.recovered"));
-    resize(1024, 792);
-    setMinimumSize(900, 580);
+    const QRect desktop = QGuiApplication::primaryScreen()->availableGeometry();
+    const int availableWidth = qMax(1, desktop.width() - 32);
+    const int availableHeight = qMax(1, desktop.height() - 40);
+    setMinimumSize(qMin(900, availableWidth), qMin(580, availableHeight));
+    resize(qMin(1024, availableWidth), qMin(792, availableHeight));
     setWindowTitle(QString("File Manager %1")
                        .arg(QStringLiteral(FILE_MANAGER_DISPLAY_VERSION)));
     setWindowIcon(filemanager::ui::BrandIdentity::applicationIcon());
